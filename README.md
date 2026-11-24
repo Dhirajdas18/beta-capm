@@ -65,8 +65,9 @@ versions of the market: the NIFTY ETF (dividends included, the price you can tra
 
 - **The ETF gives higher daily betas:** 1.052 on average against 0.979 for the index (+7.4%); weekly
   +4.3%, monthly +1.6%. The ETF's daily returns were 9% less volatile than the index's and correlated 0.97
-  with them; weekly 4% less volatile (0.99), monthly 2% (1.00). Beta divides a stock's covariance with the
-  market by the market's variance, so a quieter market series gives larger betas.
+  with them; weekly 4% less volatile (0.99), monthly 2% (1.00). Beta is a stock's covariance with the market
+  divided by the market's variance: against the ETF the variance was 17% lower and the stocks'
+  covariances 11% lower on average, which nets to the 7% higher betas (0.891 / 0.831 = 1.07).
 
 <table><tr>
 <td><a href="docs/img/meas_freq.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_freq.png"><img src="docs/img/meas_freq.gif" alt="Weekly and monthly beta of each stock against its daily beta"></picture></a></td>
