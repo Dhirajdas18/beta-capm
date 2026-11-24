@@ -90,4 +90,37 @@ function ewmaBeta(y, x, lam = 0.99, seed = 60) {
   return out;
 }
 
-if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta };
+// Inverse of a small symmetric positive-definite matrix (Gauss-Jordan).
+function invert(M) {
+  const n = M.length, A = M.map((r, i) => [...r, ...r.map((_, j) => (i === j ? 1 : 0))]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let i = c + 1; i < n; i++) if (Math.abs(A[i][c]) > Math.abs(A[p][c])) p = i;
+    [A[c], A[p]] = [A[p], A[c]];
+    const d = A[c][c]; for (let j = 0; j < 2 * n; j++) A[c][j] /= d;
+    for (let i = 0; i < n; i++) if (i !== c) { const f = A[i][c]; for (let j = 0; j < 2 * n; j++) A[i][j] -= f * A[c][j]; }
+  }
+  return A.map((r) => r.slice(n));
+}
+
+// Up and down betas from one regression y = a + b_up·max(x,0) + b_down·min(x,0), with a
+// Newey-West t for b_down − b_up (mirrors bc/asym.py updown_beta).
+function updownBeta(y, x, lags = 5) {
+  const n = y.length, X = x.map((v) => [1, Math.max(v, 0), Math.min(v, 0)]), k = 3;
+  const XtX = [...Array(k)].map((_, a) => [...Array(k)].map((_, b) => X.reduce((s, r) => s + r[a] * r[b], 0)));
+  const Xty = [...Array(k)].map((_, a) => X.reduce((s, r, i) => s + r[a] * y[i], 0));
+  const inv = invert(XtX), coef = inv.map((r) => r.reduce((s, v, j) => s + v * Xty[j], 0));
+  const xu = X.map((r, i) => { const u = y[i] - r.reduce((s, v, j) => s + v * coef[j], 0); return r.map((v) => v * u); });
+  const S = [...Array(k)].map(() => new Array(k).fill(0));
+  for (let i = 0; i < n; i++) for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) S[a][b] += xu[i][a] * xu[i][b];
+  for (let l = 1; l <= lags; l++) {
+    const w = 1 - l / (lags + 1);
+    for (let i = l; i < n; i++) for (let a = 0; a < k; a++) for (let b = 0; b < k; b++)
+      S[a][b] += w * (xu[i][a] * xu[i - l][b] + xu[i - l][a] * xu[i][b]);
+  }
+  const mul = (A, B) => A.map((r) => B[0].map((_, j) => r.reduce((s, v, m) => s + v * B[m][j], 0)));
+  const V = mul(mul(inv, S), inv).map((r) => r.map((v) => v * n / (n - k)));
+  const diff = coef[2] - coef[1], se = Math.sqrt(V[1][1] + V[2][2] - 2 * V[1][2]);
+  return { up: coef[1], down: coef[2], diff, t_diff: diff / se, n };
+}
+
+if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta, updownBeta };

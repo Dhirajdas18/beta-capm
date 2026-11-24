@@ -18,7 +18,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 - [x] CAPM regression for today's NIFTY 50: alpha, beta, R², Newey-West standard errors, multiple-testing check; live calculator tested against Python through Node
 - [x] Measuring beta: daily, weekly and monthly; ETF against index; Dimson lags; robust regression; market and Dimson options in the calculator
 - [x] Beta through time and forecasts: rolling, EWMA, Blume, Vasicek and Kalman, scored out of sample; EWMA line and Blume forecast in the calculator
-- [ ] Up and down beta; betas in crashes
+- [x] Up and down betas, crash betas and whether asymmetry repeats; up/down row in the calculator
 - [ ] Does beta pay? Security market line, Fama-MacBeth, betting against beta
 - [ ] Hedging with NIFTY futures out of sample, after F&O costs
 - [ ] Beyond one factor: momentum, low volatility and sectors from prices
@@ -105,12 +105,36 @@ next month after selling beta × the holding of NIFTY. t-statistics compare each
 
 <a href="docs/img/fc_paths.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fc_paths.png"><img src="docs/img/fc_paths.gif" alt="HDFC Bank's beta forecasts from 2014 to 2026: rolling one year, rolling three years, EWMA and Kalman" width="720"></picture></a>
 
+### 4. On average stocks fell harder with NIFTY than they rose with it (down beta 1.02 against up beta 0.93), but which stocks did so barely repeated from one period to the next
+
+<a href="docs/img/asym_updown.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/asym_updown.png"><img src="docs/img/asym_updown.gif" alt="Each stock's down beta against its up beta, with three stocks significant after correction" width="640"></picture></a>
+
+One regression per stock, daily returns above cash against the NIFTY index, January 2014 to November 2026
+(43 stocks, 3,180 days), with one slope for days NIFTY rose and another for days it fell (shared intercept,
+Newey-West t for the difference).
+
+- **Down beta was higher for 28 of 43 stocks;** averages 0.93 up, 1.02 down. 7 stocks had a significant
+  difference (p < 0.05), all with down > up, against 2.1 expected by luck; 3 survived Benjamini-Hochberg:
+  Tech Mahindra (0.60 up, 0.95 down), NTPC and Apollo Hospitals. None had a significant up > down.
+- **An equal-weight portfolio** of the 43: up 0.93, down 1.02 (t 4.6), and down > up in both 2014–19
+  (0.95, 1.06) and 2020–26 (0.92, 1.01).
+- **Crash beta,** the slope on NIFTY's worst 5% of days (159 days, falls of 1.5% or more), averaged 0.995
+  against 0.979 for the plain beta, and correlated 0.83 with it across stocks.
+
+<table><tr>
+<td><a href="docs/img/asym_persist.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/asym_persist.png"><img src="docs/img/asym_persist.gif" alt="Each stock's down minus up beta in 2014-19 against 2020-26"></picture></a></td>
+<td><a href="docs/img/asym_halves.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/asym_halves.png"><img src="docs/img/asym_halves.gif" alt="Up, down and crash beta of an equal-weight portfolio in 2014-19 and 2020-26"></picture></a></td>
+</tr></table>
+
+- **Does a stock's asymmetry repeat? (left)** Down − up in 2014–19 correlated only 0.21 with down − up in
+  2020–26 across stocks. The average gap held (+0.11, then +0.09); which stocks had it mostly did not.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # also: measure, forecast; charts -> out/
+uv run bc report capm                       # also: measure, forecast, asym; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -121,6 +145,7 @@ uv run pytest
   Benjamini-Hochberg, and a per-stock CAPM table annualised by calendar time.
 - `src/bc/measure.py`: weekly and monthly returns, Dimson beta and Huber robust beta.
 - `src/bc/forecast.py`: rolling, EWMA, Vasicek and Kalman beta forecasts, each from past days only.
+- `src/bc/asym.py`: up and down betas with a Newey-West test of the difference, and crash beta.
 - `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
   rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).

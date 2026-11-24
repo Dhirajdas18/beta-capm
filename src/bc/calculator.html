@@ -46,7 +46,7 @@ const BC = $data;
     const ok = y.map((v, i) => v !== null && x[i] !== null && i > 0);
     const yy = y.filter((_, i) => ok[i]), xx = x.filter((_, i) => ok[i]);
     if (yy.length < 30) { el("bc-out").innerHTML = ""; el("bc-note").textContent = `Not enough shared history for ${sym} in this window.`; Plotly.purge("bc-scatter"); return; }
-    const r = ols(yy, xx, weekly ? 2 : 5), dm = dimson(yy, xx);
+    const r = ols(yy, xx, weekly ? 2 : 5), dm = dimson(yy, xx), ud = updownBeta(yy, xx, weekly ? 2 : 5);
     // calendar time from the price before the first return used to the last (as capm.py)
     const i0 = ok.indexOf(true), i1 = ok.lastIndexOf(true);
     const perYear = yy.length / ((Date.parse(dates[i1]) - Date.parse(dates[i0 - 1])) / (365.25 * 86400000));
@@ -54,6 +54,7 @@ const BC = $data;
       ["Beta", f2(r.beta), `${f2(r.beta - 1.96 * r.se_beta_nw)} to ${f2(r.beta + 1.96 * r.se_beta_nw)}`, `${f2(r.beta - 1.96 * r.se_beta)} to ${f2(r.beta + 1.96 * r.se_beta)}`],
       ["Alpha a year", pct(r.alpha * perYear), `${pct((r.alpha - 1.96 * r.se_alpha_nw) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha_nw) * perYear)}`, `${pct((r.alpha - 1.96 * r.se_alpha) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha) * perYear)}`],
       [`Dimson beta (yesterday ${f2(dm.parts[0])} + today ${f2(dm.parts[1])} + tomorrow ${f2(dm.parts[2])})`, f2(dm.beta), "", ""],
+      [`Up beta / down beta (difference t ${f2(ud.t_diff)}${Math.abs(ud.t_diff) < 1.96 ? ", not significant" : ""})`, `${f2(ud.up)} / ${f2(ud.down)}`, "", ""],
       ["Forecast beta, Blume (0.67 × beta + 0.33)", f2(0.67 * r.beta + 0.33), "", ""],
       ["R² (share explained by NIFTY)", pct(r.r2), "", ""],
       ["Volatility NIFTY doesn't explain, a year", pct(r.resid_sd * Math.sqrt(perYear)), "", ""],

@@ -71,3 +71,15 @@ def test_browser_ewma_beta_matches_python():
     py = ewma_beta(y, x, 0.99, 60)
     assert js[:60] == [None] * 60
     assert js[60:] == pytest.approx(py[60:].tolist(), rel=1e-9)
+
+
+def test_browser_updown_beta_matches_python():
+    from bc.asym import updown_beta
+
+    rng = np.random.default_rng(5)
+    x = rng.normal(0, 0.01, 900)
+    y = np.where(x > 0, 0.7, 1.2) * x + rng.normal(0, 0.006, 900)
+    js = _node(f"m.updownBeta({json.dumps(y.tolist())}, {json.dumps(x.tolist())}, 5)")
+    py = updown_beta(y, x, 5)
+    for k in ("up", "down", "diff", "t_diff"):
+        assert js[k] == pytest.approx(py[k], rel=1e-8)
