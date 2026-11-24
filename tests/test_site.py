@@ -2,9 +2,16 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
+import bc.site
 from bc.data import ETFS, SYMBOLS
 from bc.site import build_html, calculator_data
+
+
+@pytest.fixture(autouse=True)
+def _level(monkeypatch):  # the real level comes from the data file, absent in CI
+    monkeypatch.setattr(bc.site, "latest_level", lambda: 25_000.0)
 
 
 def _returns():
@@ -20,6 +27,7 @@ def test_calculator_data_is_compact_and_keeps_gaps():
     assert len(d["dates"]) == 1250 and d["market"] == "NIFTYBEES" and d["rf"] == 0.065
     assert d["r"][SYMBOLS[0]][0] is None and isinstance(d["r"][SYMBOLS[0]][-1], int)
     assert "NIFTYBEES" in d["r"] and "NIFTY" in d["r"] and "NIFTYBEES" not in d["symbols"]
+    assert d["fut"]["lot"] == 65 and d["nifty_level"] > 0
     assert json.loads(json.dumps(d)) == d
 
 

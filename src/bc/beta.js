@@ -123,4 +123,12 @@ function updownBeta(y, x, lags = 5) {
   return { up: coef[1], down: coef[2], diff, t_diff: diff / se, n };
 }
 
-if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta, updownBeta };
+// ₹ cost of a futures trade (mirrors bc/hedge.py futures_cost; `fut` is its FUT table).
+function futuresCost(buy, sell, orders, fut) {
+  if (orders === 0) return 0;
+  const brokerage = orders * Math.min(fut.brokerage_cap, fut.brokerage_rate * (buy + sell) / orders);
+  const fees = (buy + sell) * (fut.exchange + fut.sebi);
+  return (brokerage + fees) * (1 + fut.gst) + sell * fut.stt_sell + buy * fut.stamp_buy + (buy + sell) * fut.slippage;
+}
+
+if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta, updownBeta, futuresCost };

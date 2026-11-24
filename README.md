@@ -20,7 +20,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 - [x] Beta through time and forecasts: rolling, EWMA, Blume, Vasicek and Kalman, scored out of sample; EWMA line and Blume forecast in the calculator
 - [x] Up and down betas, crash betas and whether asymmetry repeats; up/down row in the calculator
 - [x] Does beta pay: Fama-MacBeth, beta-sorted portfolios, betting against beta and a long-only low-beta portfolio after costs; two dashboard sections
-- [ ] Hedging with NIFTY futures out of sample, after F&O costs
+- [x] Hedging with NIFTY futures out of sample after today's futures charges and whole lots; lots and roll cost in the calculator
 - [ ] Beyond one factor: momentum, low volatility and sectors from prices
 
 ## Findings
@@ -155,12 +155,44 @@ month's, above cash. The market premium is the NIFTY ETF's (dividends included):
   Sharpe 0.71. All stocks equally weighted, the same survivors with no costs, made Sharpe 0.86; the
   low-beta fifth trailed it by 3.8% a year (t −1.3) with beta 0.73 against 1.04.
 
+### 6. A monthly NIFTY futures hedge removed 91% of a diversified portfolio's risk for 0.8% a year, but only about a quarter of a single stock's
+
+<a href="docs/img/hedge_removed.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/hedge_removed.png"><img src="docs/img/hedge_removed.gif" alt="Share of monthly variance removed by beta and 1:1 futures hedges for three kinds of portfolio" width="720"></picture></a>
+
+Each month from February 2012 to October 2026 (177 months), sell NIFTY futures worth beta × the
+portfolio (the Blume beta known that day) in whole lots of 65, and roll at month end. The futures'
+return is the NIFTY ETF's return above cash (a fairly priced future earns the index plus its built-in
+carry; basis risk is left out). Costs are Zerodha's futures charges today, for every year: STT 0.05% on
+sells, NSE 0.00183%, stamp 0.002% on buys, ₹20 brokerage, GST, plus an assumed 0.005% a side for the
+bid-ask spread.
+
+- **All stocks, equal weight (₹50 lakh):** volatility fell from 16.7% to 5.0% a year (91% of the
+  variance removed), costs 0.78% a year. Whole lots against an exact hedge made no visible difference,
+  and a 1:1 hedge did as well (92%), since the portfolio's beta was close to 1.
+- **Lowest-beta fifth (beta about 0.65):** the beta hedge removed 56% of the variance; a 1:1 hedge
+  over-hedged, removed only 48% and kept 4.5% a year of return against 6.2%.
+- **Single stocks (₹10 lakh each, 43 stocks):** median 27% of the variance removed; for 7% of stocks
+  the whole-lot hedge added risk. With exact sizing the median is 29%: a stock's own risk stays.
+
+<table><tr>
+<td><a href="docs/img/hedge_wealth.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/hedge_wealth.png"><img src="docs/img/hedge_wealth.gif" alt="Rupee growth of the equal-weight portfolio hedged and unhedged"></picture></a></td>
+<td><a href="docs/img/hedge_lots.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/hedge_lots.png"><img src="docs/img/hedge_lots.gif" alt="Hedge ratio available in whole lots for ₹10 lakh and ₹50 lakh portfolios over time"></picture></a></td>
+</tr></table>
+
+- **What's left after hedging (left):** the hedged equal-weight portfolio kept 7.9% a year above cash
+  (Sharpe 1.58). That remainder is the alpha of today's NIFTY 50 members looking back, which finding 5
+  showed is survivorship, so it isn't a return to expect.
+- **Lot size (right):** with today's 65-unit lot at each month's NIFTY level, one lot grew from ₹3.4
+  lakh to ₹14.7 lakh. From mid-2024 a ₹10 lakh portfolio's nearest whole lot gave a hedge ratio of
+  1.44 to 1.70; a ₹50 lakh one was never more than 14% off the target. Real lot sizes in past years differed.
+- **Costs:** STT alone, 0.05% of the futures sold each month, is 0.6% of the hedged amount a year.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # also: measure, forecast, asym, pricing; charts -> out/
+uv run bc report capm                       # also: measure, forecast, asym, pricing, hedge; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -173,6 +205,7 @@ uv run pytest
 - `src/bc/forecast.py`: rolling, EWMA, Vasicek and Kalman beta forecasts, each from past days only.
 - `src/bc/asym.py`: up and down betas with a Newey-West test of the difference, and crash beta.
 - `src/bc/pricing.py`: Fama-MacBeth, beta-sorted portfolios and betting against beta.
+- `src/bc/hedge.py`: futures charges, whole-lot sizing and a monthly-rolled hedge.
 - `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
   rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).

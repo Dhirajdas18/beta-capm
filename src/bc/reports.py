@@ -865,10 +865,161 @@ def report_pricing(out_dir: Path) -> dict:
     }
 
 
+def report_hedge(out_dir: Path) -> dict:
+    """Hedging with NIFTY futures, monthly from 2012: equal-weight and low-beta portfolios and
+    single stocks, beta hedge in whole lots against a fractional (ideal) one and a 1:1 hedge, after
+    today's futures charges. Betas and lot counts known at each month start."""
+    from bc.data import DATA_PATH
+    from bc.hedge import FUT, run_hedge, variance_removed
+    from bc.pricing import beta_sorts
+
+    B, Rn, fut = _monthly_panel()
+    level = pd.read_parquet(DATA_PATH)["adj_close"][HEDGE_MARKET].dropna()
+    month_end = level.groupby(level.index.to_period("M")).last()
+    lot_value = FUT["lot"] * month_end.reindex(B.index)
+    srt = beta_sorts(B, Rn)
+    members = {t: B.loc[t].dropna().index.intersection(Rn.loc[t].dropna().index) for t in B.index}
+    ew = pd.Series([float(Rn.loc[t, members[t]].mean()) for t in B.index], B.index)
+    ew_beta = pd.Series([float(B.loc[t, members[t]].mean()) for t in B.index], B.index)
+
+    def fifth_beta(t):  # same split as beta_sorts: qcut of ranks, lowest fifth
+        b = B.loc[t, members[t]]
+        return float(b[pd.qcut(b.rank(method="first"), 5, labels=False) == 0].mean())
+
+    low_beta = pd.Series([fifth_beta(t) for t in B.index], B.index)
+    ports = {
+        "all stocks, equal weight": (ew, ew_beta),
+        "lowest-beta fifth": (srt["quintiles"][0], low_beta),
+    }
+    cap = 5_000_000
+    sh = lambda v: float(v.mean() / v.std() * np.sqrt(12))  # noqa: E731
+    res, stats = {}, {}
+    for name, (r, b) in ports.items():
+        runs = {
+            "beta hedge, whole lots": run_hedge(r, fut, b, lot_value, cap),
+            "beta hedge, exact": run_hedge(r, fut, b, lot_value, cap, whole=False),
+            "1:1 hedge, whole lots": run_hedge(r, fut, b * 0 + 1, lot_value, cap),
+        }
+        res[name] = runs
+        base = next(iter(runs.values()))["unhedged"]
+        stats[name] = {
+            "unhedged": (
+                round(base.std() * np.sqrt(12) * 100, 2),
+                round(base.mean() * 1200, 2),
+                round(sh(base), 2),
+            )
+        }
+        for k, o in runs.items():
+            stats[name][k] = {
+                "vol %/yr": round(o["hedged"].std() * np.sqrt(12) * 100, 2),
+                "variance removed": round(variance_removed(o), 3),
+                "mean %/yr": round(o["hedged"].mean() * 1200, 2),
+                "cost %/yr": round(o["cost"].mean() * 1200, 3),
+                "Sharpe": round(sh(o["hedged"]), 2),
+                "hedge ratio mean": round(float(o["hedge_ratio"].mean()), 3),
+            }
+
+    single_cap = 1_000_000
+    full = [s for s in B.columns if B[s].notna().all() and Rn[s].notna().all()]
+    vr = {k: [] for k in ("whole lots, ₹10 lakh", "whole lots, ₹1 crore", "exact")}
+    for s in full:
+        for k, c, whole in (
+            ("whole lots, ₹10 lakh", single_cap, True),
+            ("whole lots, ₹1 crore", 10_000_000, True),
+            ("exact", single_cap, False),
+        ):
+            vr[k].append(variance_removed(run_hedge(Rn[s], fut, B[s], lot_value, c, whole)))
+    vr = {k: np.array(v) for k, v in vr.items()}
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    groups = list(ports) + [f"single stocks (median of {len(full)})"]
+    kinds = [
+        ("beta hedge, exact", plots.SERIES[2]),
+        ("beta hedge, whole lots", plots.SERIES[0]),
+        ("1:1 hedge, whole lots", plots.MUTED),
+    ]
+    for j, (k, c) in enumerate(kinds):
+        vals = [stats[g][k]["variance removed"] for g in ports]
+        vals.append(
+            float(np.median(vr["exact"] if "exact" in k else vr["whole lots, ₹10 lakh"]))
+            if "1:1" not in k
+            else np.nan
+        )
+        xs = np.arange(len(groups)) - 0.27 + 0.27 * j
+        ax.bar(xs, [v * 100 for v in vals], 0.25, color=c, label=k)
+        for x, v in zip(xs, vals, strict=True):
+            if np.isfinite(v):
+                ax.text(x, v * 100 + 1, f"{v:.0%}", ha="center", fontsize=8)
+    ax.set_xticks(range(len(groups)), groups, fontsize=9)
+    ax.set_ylabel("share of monthly variance removed, %")
+    ax.set_ylim(0, 100)
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper right", fontsize=8)
+    ax.set_title(
+        "A beta hedge removed most of a diversified portfolio's risk, "
+        "about a quarter of a single stock's"
+    )
+    plots.save(fig, out_dir, "hedge_removed")
+
+    o = res["all stocks, equal weight"]["beta hedge, whole lots"]
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    idx = B.index.to_timestamp(how="end") + pd.offsets.MonthEnd(1)
+    for v, c, lab in (
+        (o["unhedged"], plots.TEXT, "unhedged"),
+        (o["hedged"], plots.SERIES[0], "beta-hedged with NIFTY futures, after costs"),
+    ):
+        ax.plot(idx, (1 + v).cumprod().to_numpy(), color=c, lw=1.8, label=lab)
+    ax.set_ylabel("₹1 grown above cash")
+    ax.legend(loc="upper left", fontsize=8)
+    st = stats["all stocks, equal weight"]
+    ax.set_title(
+        f"Equal-weight portfolio: hedging cut volatility from {st['unhedged'][0]:.0f}% to "
+        f"{st['beta hedge, whole lots']['vol %/yr']:.0f}% a year and kept "
+        f"{st['beta hedge, whole lots']['mean %/yr']:.1f}% of {st['unhedged'][1]:.1f}%"
+    )
+    plots.save(fig, out_dir, "hedge_wealth")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for c_, col in ((1_000_000, plots.SERIES[1]), (5_000_000, plots.SERIES[0])):
+        n = (c_ / lot_value).round()
+        ax.plot(
+            idx,
+            (n * lot_value / c_).to_numpy(),
+            color=col,
+            lw=1.8,
+            label=f"₹{c_ / 1e5:.0f} lakh portfolio",
+        )
+    ax.axhline(1, color=plots.TEXT_2, lw=0.8, ls="--", label="wanted: hedge ratio 1")
+    ax.set_ylabel("hedge ratio you can get in whole lots (beta 1)")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_title(
+        f"One NIFTY lot ({FUT['lot']} units) grew from ₹{lot_value.iloc[0] / 1e5:.1f} lakh "
+        f"to ₹{lot_value.iloc[-1] / 1e5:.1f} lakh: small portfolios can't hedge exactly"
+    )
+    plots.save(fig, out_dir, "hedge_lots")
+
+    return {
+        "months": (len(B), f"{B.index[0] + 1} to {B.index[-1] + 1}"),
+        "lot value ₹ lakh: first, last": (
+            round(lot_value.iloc[0] / 1e5, 2),
+            round(lot_value.iloc[-1] / 1e5, 2),
+        ),
+        "portfolios (unhedged vol, mean, Sharpe; then per hedge)": stats,
+        "single stocks: variance removed median (₹10L whole, ₹1cr whole, exact)": tuple(
+            round(float(np.median(v)), 3) for v in vr.values()
+        ),
+        "single stocks: share where ₹10L whole-lot hedge added risk": round(
+            float((vr["whole lots, ₹10 lakh"] < 0).mean()), 3
+        ),
+        "single stocks n": len(full),
+    }
+
+
 REPORTS = {
     "capm": report_capm,
     "measure": report_measure,
     "forecast": report_forecast,
     "asym": report_asym,
     "pricing": report_pricing,
+    "hedge": report_hedge,
 }

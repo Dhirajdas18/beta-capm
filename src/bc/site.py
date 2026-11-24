@@ -27,8 +27,16 @@ DAYS = 1250  # five years of trading days embedded in the page
 SCALE = 1e-5  # returns stored as integers in units of 0.001%
 
 
+def latest_level() -> float:
+    """Latest NIFTY index level, for sizing futures lots."""
+    from bc.data import DATA_PATH
+
+    return float(pd.read_parquet(DATA_PATH)["adj_close"]["NIFTY"].dropna().iloc[-1])
+
+
 def calculator_data(r: pd.DataFrame) -> dict:
     from bc.data import SECTORS, SYMBOLS
+    from bc.hedge import FUT
     from bc.reports import MARKET, RF
 
     symbols = sorted(SYMBOLS)
@@ -37,7 +45,8 @@ def calculator_data(r: pd.DataFrame) -> dict:
             for s in symbols + [MARKET, "NIFTY"]}
     return {"symbols": symbols, "sectors": {s: SECTORS[s] for s in symbols}, "market": MARKET,
             "rf": RF, "dates": list(recent.index.strftime("%Y-%m-%d")),
-            "last": f"{recent.index[-1]:%d %b %Y}", "r": data}
+            "last": f"{recent.index[-1]:%d %b %Y}", "r": data, "fut": FUT,
+            "nifty_level": round(latest_level(), 2)}
 
 
 def calculator_section(data: pd.DataFrame) -> str:

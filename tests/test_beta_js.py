@@ -32,8 +32,9 @@ def test_browser_ols_matches_python():
 def test_browser_excess_uses_calendar_days():
     idx = pd.bdate_range("2024-01-01", periods=30)
     r = pd.Series(np.random.default_rng(1).normal(0, 0.01, 30), index=idx)
-    js = _node(f"m.excess({json.dumps(r.tolist())}, {json.dumps(list(idx.strftime('%Y-%m-%d')))},"
-               " 0.065)")
+    js = _node(
+        f"m.excess({json.dumps(r.tolist())}, {json.dumps(list(idx.strftime('%Y-%m-%d')))}, 0.065)"
+    )
     assert np.array(js[1:]) == pytest.approx(excess(r, 0.065).to_numpy()[1:], rel=1e-9)
 
 
@@ -43,8 +44,9 @@ def test_browser_weekly_returns_match_pandas():
     px = (1 + r).cumprod()
     py = px.resample("W-FRI").last().pct_change().iloc[1:]
     py = py[py.index <= idx[-1]]  # unfinished last week left out
-    js = _node(f"m.toWeekly({{a: {json.dumps(r.tolist())}}}, "
-               f"{json.dumps(list(idx.strftime('%Y-%m-%d')))})")
+    js = _node(
+        f"m.toWeekly({{a: {json.dumps(r.tolist())}}}, {json.dumps(list(idx.strftime('%Y-%m-%d')))})"
+    )
     assert np.array(js["cols"]["a"]) == pytest.approx(py.to_numpy(), rel=1e-9)
     assert js["dates"] == list(py.index.strftime("%Y-%m-%d"))
 
@@ -83,3 +85,15 @@ def test_browser_updown_beta_matches_python():
     py = updown_beta(y, x, 5)
     for k in ("up", "down", "diff", "t_diff"):
         assert js[k] == pytest.approx(py[k], rel=1e-8)
+
+
+def test_browser_futures_cost_matches_python():
+    from bc.hedge import FUT, futures_cost
+
+    for buy, sell, orders in (
+        (1_500_000.0, 1_500_000.0, 2),
+        (0.0, 3_000_000.0, 1),
+        (40_000.0, 0.0, 1),
+    ):
+        js = _node(f"m.futuresCost({buy}, {sell}, {orders}, {json.dumps(FUT)})")
+        assert js == pytest.approx(futures_cost(buy, sell, orders), rel=1e-12)
