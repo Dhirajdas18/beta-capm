@@ -27,3 +27,8 @@ def test_page_builds():
     html = build_html(_returns())
     assert "function ols" in html and 'id="beta-calculator"' in html
     assert "$" + "js" not in html and "$" + "data" not in html
+
+
+def test_page_has_the_beta_pays_section_from_the_same_returns():
+    html = build_html(_returns())
+    assert "fig-does-beta-pay" in html and "fig-betting-against-beta" in html

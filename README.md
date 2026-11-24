@@ -19,7 +19,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 - [x] Measuring beta: daily, weekly and monthly; ETF against index; Dimson lags; robust regression; market and Dimson options in the calculator
 - [x] Beta through time and forecasts: rolling, EWMA, Blume, Vasicek and Kalman, scored out of sample; EWMA line and Blume forecast in the calculator
 - [x] Up and down betas, crash betas and whether asymmetry repeats; up/down row in the calculator
-- [ ] Does beta pay? Security market line, Fama-MacBeth, betting against beta
+- [x] Does beta pay: Fama-MacBeth, beta-sorted portfolios, betting against beta and a long-only low-beta portfolio after costs; two dashboard sections
 - [ ] Hedging with NIFTY futures out of sample, after F&O costs
 - [ ] Beyond one factor: momentum, low volatility and sectors from prices
 
@@ -129,12 +129,38 @@ Newey-West t for the difference).
 - **Does a stock's asymmetry repeat? (left)** Down − up in 2014–19 correlated only 0.21 with down − up in
   2020–26 across stocks. The average gap held (+0.11, then +0.09); which stocks had it mostly did not.
 
+### 5. Higher beta didn't earn more: the reward per unit of beta was −1.2% a year (t −0.2), though 15 years can't rule out CAPM's +5.8% either
+
+<a href="docs/img/price_sml.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/price_sml.png"><img src="docs/img/price_sml.gif" alt="Average return of five beta-sorted portfolios against their realised beta, with the CAPM line" width="680"></picture></a>
+
+Each month from February 2012 to October 2026 (177 months, 43 to 50 stocks), each stock's beta was the
+Blume-shrunk past-year beta to the NIFTY index, known at the start of the month; returns are the next
+month's, above cash. The market premium is the NIFTY ETF's (dividends included): 5.8% a year.
+
+- **Fama-MacBeth:** regressing each month's returns on the betas gave an average slope of −1.2% a year
+  (Newey-West t −0.17). CAPM predicts the slope equals the market premium; the gap, −7.0% a year, has
+  t −1.13. Neither "beta pays nothing" nor "beta pays as CAPM says" can be rejected with 177 months.
+- **Beta fifths (chart above):** realised betas ran from 0.73 to 1.50; returns above cash were 11.0%,
+  16.0%, 16.2%, 13.5% and 15.1% a year from lowest to highest. Every fifth sits far above the CAPM line,
+  and the Fama-MacBeth intercept was 15.1% a year (t 2.5): these are today's NIFTY 50 members looking
+  back, so survivorship lifts every group. Compare the groups with each other, not with the line.
+
+<a href="docs/img/price_bab.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/price_bab.png"><img src="docs/img/price_bab.gif" alt="Rupee growth of betting against beta, the low-beta fifth after costs, all stocks equal weight and the NIFTY ETF" width="720"></picture></a>
+
+- **Betting against beta** (long the low-beta half and short the high-beta half, each scaled to beta 1):
+  6.9% a year above cash before costs, volatility 16.8%, Sharpe 0.41; alpha against the ETF 7.2% a year,
+  t 1.65, market beta −0.05. It traded 34% of its position a month, so costs above 1.8% per rupee traded
+  would erase the alpha; shorting needs stock futures, whose costs aren't modelled here.
+- **Long-only lowest-beta fifth:** 10.6% a year above cash after Zerodha delivery costs (0.38% a year),
+  Sharpe 0.71. All stocks equally weighted, the same survivors with no costs, made Sharpe 0.86; the
+  low-beta fifth trailed it by 3.8% a year (t −1.3) with beta 0.73 against 1.04.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # also: measure, forecast, asym; charts -> out/
+uv run bc report capm                       # also: measure, forecast, asym, pricing; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -146,6 +172,7 @@ uv run pytest
 - `src/bc/measure.py`: weekly and monthly returns, Dimson beta and Huber robust beta.
 - `src/bc/forecast.py`: rolling, EWMA, Vasicek and Kalman beta forecasts, each from past days only.
 - `src/bc/asym.py`: up and down betas with a Newey-West test of the difference, and crash beta.
+- `src/bc/pricing.py`: Fama-MacBeth, beta-sorted portfolios and betting against beta.
 - `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
   rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).

@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 from string import Template
 
+import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
 from bc import plots
 
@@ -43,6 +45,60 @@ def calculator_section(data: pd.DataFrame) -> str:
             .replace("$data", json.dumps(calculator_data(data), separators=(",", ":"))))
 
 
+def _pricing(data: pd.DataFrame) -> dict:
+    from bc.pricing import beta_sorts
+    from bc.reports import _delivery_cost, _monthly_panel
+
+    B, Rn, mkt = _monthly_panel(data)
+    srt = beta_sorts(B, Rn)
+    ew = pd.Series([float(Rn.loc[t, B.loc[t].dropna().index].mean()) for t in B.index], B.index)
+    lo_net = srt["low"] - srt["low_turnover"].map(_delivery_cost)
+    return {"Q": srt["quintiles"], "bab": srt["bab"], "low": lo_net, "ew": ew, "mkt": mkt,
+            "dates": list((B.index + 1).strftime("%Y-%m-%d"))}
+
+
+def _layout(fig: go.Figure, ytitle: str, **y) -> go.Figure:
+    fig.update_layout(paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE,
+                      font=dict(family=FONT, color=plots.TEXT_2, size=13),
+                      margin=dict(l=56, r=16, t=56, b=40),
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0),
+                      xaxis=dict(gridcolor=plots.GRID),
+                      yaxis=dict(title=ytitle, gridcolor=plots.GRID, **y))
+    return fig
+
+
+def sml_figure(data: pd.DataFrame) -> go.Figure:
+    """Average next-month return above cash of each beta fifth, against the NIFTY ETF's."""
+    p = _pricing(data)
+    m = p["mkt"].to_numpy()
+    labels = ["1 lowest", "2", "3", "4", "5 highest"]
+    real = [round(float(np.polyfit(m, p["Q"][k], 1)[0]), 2) for k in range(5)]
+    fig = go.Figure()
+    fig.add_bar(x=labels, y=[round(float(p["Q"][k].mean() * 1200), 2) for k in range(5)],
+                marker_color=plots.SERIES[0], customdata=real, name="beta fifth",
+                hovertemplate="fifth %{x}: %{y:.1f}% a year, realised beta %{customdata}"
+                              "<extra></extra>")
+    fig.add_scatter(x=labels, y=[round(float(p["mkt"].mean() * 1200), 2)] * 5, mode="lines",
+                    line=dict(color=plots.TEXT, width=1.5, dash="dash"), name="NIFTY ETF",
+                    hovertemplate="NIFTY ETF: %{y:.1f}% a year<extra></extra>")
+    return _layout(fig, "average return above cash, % a year", rangemode="tozero")
+
+
+def bab_figure(data: pd.DataFrame) -> go.Figure:
+    """₹1 grown above cash: betting against beta, the low-beta fifth, all stocks, NIFTY ETF."""
+    p = _pricing(data)
+    fig = go.Figure()
+    for name, v, c in (("betting against beta (gross)", p["bab"], plots.SERIES[1]),
+                       ("low-beta fifth, after costs", p["low"], plots.SERIES[0]),
+                       ("all stocks, equal weight", p["ew"], plots.MUTED),
+                       ("NIFTY ETF", p["mkt"], plots.TEXT)):
+        fig.add_scatter(x=p["dates"], y=(1 + v).cumprod().round(3).tolist(), mode="lines",
+                        name=name, line=dict(color=c, width=2),
+                        hovertemplate=f"{name}: ₹%{{y:.2f}}<extra></extra>")
+    fig.update_layout(hovermode="x unified")
+    return _layout(fig, "₹1 grown above cash (log scale)", type="log", tickprefix="₹")
+
+
 SECTIONS = [
     ("Beta calculator",
      "Pick one of today’s NIFTY 50 stocks, a window and daily or weekly returns. The page "
@@ -51,6 +107,19 @@ SECTIONS = [
      "R² the share of the stock’s ups and downs the market accounts for. Newey-West ranges allow "
      "for errors that cluster in time.",
      calculator_section),
+    ("Does beta pay",
+     "Each month, today’s NIFTY 50 stocks are sorted by their beta at the start of the month "
+     "(Blume-shrunk, past year against the NIFTY index) and held for the month. CAPM says "
+     "higher beta should earn more. Betting against beta (below) buys the low-beta half and "
+     "sells the "
+     "high-beta half, each scaled to beta 1. These are today’s members looking back, so every "
+     "bar is flattered by survivorship: compare the fifths with each other, not with the ETF.",
+     sml_figure),
+    ("Betting against beta",
+     "₹1 in betting against beta (before costs; shorting would need stock futures), in the "
+     "lowest-beta fifth after delivery costs, in all the stocks equally weighted (the same "
+     "survivors) and in the NIFTY ETF, all measured above cash.",
+     bab_figure),
 ]
 
 

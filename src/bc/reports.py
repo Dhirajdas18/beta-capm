@@ -647,9 +647,228 @@ def report_asym(out_dir: Path) -> dict:
     }
 
 
+# Zerodha equity delivery charges (as used in correlation-heatmap), per rupee traded
+DELIVERY = {
+    "stt": 0.001,
+    "stamp_buy": 0.00015,
+    "exchange": 0.0000322,
+    "sebi": 0.000001,
+    "gst": 0.18,
+    "slippage": 0.0005,
+}
+
+
+def _delivery_cost(turnover: float) -> float:
+    """Cost of buying turnover/2 and selling turnover/2 of the portfolio (DP charges left out)."""
+    d = DELIVERY
+    side = (d["exchange"] + d["sebi"]) * (1 + d["gst"]) + d["slippage"] + d["stt"]
+    return turnover * side + turnover / 2 * d["stamp_buy"]
+
+
+def _monthly_panel(R: pd.DataFrame | None = None):
+    """Blume-shrunk 1-year betas at each month end (daily excess returns to the NIFTY index, at
+    least 200 of the last 250 days) and the next month's excess returns."""
+    from bc.capm import excess
+    from bc.data import SYMBOLS
+    from bc.measure import resampled_returns
+
+    R = (returns() if R is None else R).loc["2011-01-01":]
+    E = R[SYMBOLS + [HEDGE_MARKET]].apply(lambda c: excess(c, RF))
+    month = E.index.to_period("M")
+    ends = np.flatnonzero(np.append(month[1:] != month[:-1], True))
+    ends = ends[ends >= 249]
+    B = {}
+    x_all = E[HEDGE_MARKET].to_numpy()
+    for t in ends:
+        win = slice(t - 249, t + 1)
+        x = x_all[win]
+        row = {}
+        for s in SYMBOLS:
+            y = E[s].to_numpy()[win]
+            ok = np.isfinite(y) & np.isfinite(x)
+            if ok.sum() >= 200:
+                row[s] = 0.67 * np.polyfit(x[ok], y[ok], 1)[0] + 0.33
+        B[E.index[t].to_period("M")] = row
+    B = pd.DataFrame(B).T
+    M = resampled_returns(R[SYMBOLS + [MARKET, HEDGE_MARKET]], "ME")
+    days = M.index.to_series().diff().dt.days
+    M = M.sub((1 + RF) ** (days / 365) - 1, axis=0).iloc[1:]
+    M.index = M.index.to_period("M")
+    nxt = M.shift(-1)  # row t holds month t+1's excess return
+    common = B.index.intersection(nxt.dropna(subset=[MARKET]).index)
+    return B.loc[common], nxt.loc[common, SYMBOLS], nxt.loc[common, MARKET]
+
+
+def report_pricing(out_dir: Path) -> dict:
+    """Does beta pay? Fama-MacBeth, beta-sorted portfolios against the CAPM line, betting against
+    beta, and a long-only low-beta portfolio after costs. Monthly; betas known at month start."""
+    from bc.pricing import _nw_t_mean, beta_sorts, fama_macbeth
+
+    B, Rn, mkt = _monthly_panel()
+    fm = fama_macbeth(B, Rn, lags=3)
+    prem = float(mkt.mean())
+
+    srt = beta_sorts(B, Rn)
+    Q, bab = srt["quintiles"], srt["bab"]
+    turn, lo_turn, lo_ret = srt["bab_turnover"].iloc[1:], srt["low_turnover"], srt["low"]
+    m = mkt.to_numpy()
+    real_beta = {k: float(np.polyfit(m, Q[k], 1)[0]) for k in range(5)}
+    ann = {k: float(Q[k].mean() * 12) for k in range(5)}
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.4))
+    xs = np.array([0, 1.8])
+    ax.plot(
+        xs,
+        xs * prem * 12 * 100,
+        color=plots.TEXT_2,
+        lw=1,
+        ls="--",
+        label="CAPM line: cash at beta 0, NIFTY ETF at beta 1",
+    )
+    ax.plot(
+        [real_beta[k] for k in range(5)],
+        [ann[k] * 100 for k in range(5)],
+        "o-",
+        ms=8,
+        color=plots.SERIES[0],
+        label="beta quintiles (1 = lowest beta)",
+    )
+    for k in range(5):
+        ax.annotate(
+            str(k + 1),
+            (real_beta[k], ann[k] * 100),
+            xytext=(0, 9),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+            color=plots.TEXT,
+        )
+    ax.plot([1], [prem * 12 * 100], "s", ms=8, color=plots.TEXT, label="NIFTY ETF")
+    ax.set_xlabel("realised beta of the quintile portfolio (monthly, against the NIFTY ETF)")
+    ax.set_ylabel("average return above cash, % a year")
+    ax.set_xlim(0, 1.8)
+    ax.legend(loc="lower right", fontsize=8)
+    ax.set_title(
+        f"Lowest-beta fifth earned {ann[0] * 100:.1f}% a year above cash; the other "
+        f"four {min(ann[k] for k in range(1, 5)) * 100:.1f}–"
+        f"{max(ann[k] for k in range(1, 5)) * 100:.1f}%"
+    )
+    plots.save(fig, out_dir, "price_sml")
+
+    from bc.capm import ols
+
+    o = ols(bab.to_numpy(), m, 3)
+    bab_alpha = o["alpha"]
+    resid = bab.to_numpy() - o["alpha"] - o["beta"] * m
+    t_alpha = o["alpha"] / o["se_alpha_nw"]
+    mean_turn = float(np.mean(turn))
+    breakeven = bab_alpha / mean_turn  # per-side cost (per rupee traded) that zeroes the alpha
+    lo = lo_ret
+    lo_cost = lo_turn.map(_delivery_cost)
+    lo_net = lo - lo_cost
+    ew = pd.Series(
+        [float(Rn.loc[t, B.loc[t].dropna().index].mean()) for t in B.index], index=B.index
+    )  # all stocks, equal weight: the same survivors
+    wealth = {
+        "betting against beta (gross)": (1 + bab).cumprod(),
+        "lowest-beta quintile, after costs": (1 + lo_net).cumprod(),
+        "all stocks, equal weight (same survivors, no costs)": (1 + ew).cumprod(),
+        "NIFTY ETF": (1 + mkt).cumprod(),
+    }
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    idx = B.index.to_timestamp(how="end") + pd.offsets.MonthEnd(1)
+    for (k, w), c in zip(
+        wealth.items(), (plots.SERIES[1], plots.SERIES[0], plots.MUTED, plots.TEXT), strict=True
+    ):
+        ax.plot(idx, w.to_numpy(), color=c, lw=1.8, label=k)
+    ax.set_yscale("log")
+    from matplotlib.ticker import FuncFormatter, LogLocator
+
+    ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 3, 4, 6)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+    ax.set_ylabel("₹1 grown above cash (log scale)")
+    ax.legend(loc="upper left", fontsize=8)
+    sh = lambda v: float(v.mean() / v.std() * np.sqrt(12))  # noqa: E731
+    ax.set_title(
+        f"Sharpe: betting against beta {sh(bab):.2f} gross, low-beta fifth {sh(lo_net):.2f} net, "
+        f"all stocks {sh(ew):.2f}, NIFTY ETF {sh(mkt):.2f}"
+    )
+    plots.save(fig, out_dir, "price_bab")
+
+    lo_o = ols(lo_net.to_numpy(), m, 3)
+    ew_o = ols(ew.to_numpy(), m, 3)
+    diff = lo_net - ew
+    return {
+        "months, stocks per month (min, max)": (
+            len(B),
+            int(B.notna().sum(axis=1).min()),
+            int(B.notna().sum(axis=1).max()),
+            f"{B.index[0] + 1} to {B.index[-1] + 1}",
+        ),
+        "market premium (ETF) % a year": round(prem * 12 * 100, 2),
+        "Fama-MacBeth slope % a year, NW t": (
+            round(fm["slope"] * 1200, 2),
+            round(fm["t_slope"], 2),
+        ),
+        "Fama-MacBeth intercept % a year, NW t": (
+            round(fm["intercept"] * 1200, 2),
+            round(fm["t_intercept"], 2),
+        ),
+        "slope minus premium, t": (
+            round((fm["slope"] - prem) * 1200, 2),
+            round(_nw_t_mean((fm["slopes"] - mkt.loc[fm["slopes"].index]).to_numpy(), 3), 2),
+        ),
+        "quintiles: realised beta": [round(real_beta[k], 3) for k in range(5)],
+        "quintiles: % a year above cash": [round(ann[k] * 100, 2) for k in range(5)],
+        "BAB: mean % a year, vol % a year, Sharpe": (
+            round(bab.mean() * 1200, 2),
+            round(bab.std() * np.sqrt(12) * 100, 2),
+            round(sh(bab), 2),
+        ),
+        "BAB: alpha % a year, NW t, market beta": (
+            round(o["alpha"] * 1200, 2),
+            round(t_alpha, 2),
+            round(o["beta"], 3),
+        ),
+        "BAB: resid vol % a year": round(float(resid.std() * np.sqrt(12) * 100), 2),
+        "BAB: mean monthly turnover (gross, both legs)": round(mean_turn, 3),
+        "BAB: breakeven per-side cost (%)": round(breakeven * 100, 3),
+        "low-beta quintile: net % a year, vol, Sharpe": (
+            round(lo_net.mean() * 1200, 2),
+            round(lo_net.std() * np.sqrt(12) * 100, 2),
+            round(sh(lo_net), 2),
+        ),
+        "low-beta quintile: cost % a year, mean turnover": (
+            round(lo_cost.mean() * 1200, 2),
+            round(float(lo_turn.iloc[1:].mean()), 3),
+        ),
+        "low-beta quintile: alpha % a year, NW t, beta": (
+            round(lo_o["alpha"] * 1200, 2),
+            round(lo_o["alpha"] / lo_o["se_alpha_nw"], 2),
+            round(lo_o["beta"], 3),
+        ),
+        "equal-weight all stocks: alpha % a year, NW t, beta": (
+            round(ew_o["alpha"] * 1200, 2),
+            round(ew_o["alpha"] / ew_o["se_alpha_nw"], 2),
+            round(ew_o["beta"], 3),
+        ),
+        "low-beta net minus equal weight: % a year, NW t": (
+            round(diff.mean() * 1200, 2),
+            round(_nw_t_mean(diff.to_numpy(), 3), 2),
+        ),
+        "NIFTY ETF: vol % a year, Sharpe": (
+            round(mkt.std() * np.sqrt(12) * 100, 2),
+            round(sh(mkt), 2),
+        ),
+    }
+
+
 REPORTS = {
     "capm": report_capm,
     "measure": report_measure,
     "forecast": report_forecast,
     "asym": report_asym,
+    "pricing": report_pricing,
 }
