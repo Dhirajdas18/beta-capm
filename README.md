@@ -17,7 +17,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 
 - [x] CAPM regression for today's NIFTY 50: alpha, beta, R², Newey-West standard errors, multiple-testing check; live calculator tested against Python through Node
 - [x] Measuring beta: daily, weekly and monthly; ETF against index; Dimson lags; robust regression; market and Dimson options in the calculator
-- [ ] Beta through time and forecasting it: rolling, EWMA, Vasicek, Kalman
+- [x] Beta through time and forecasts: rolling, EWMA, Blume, Vasicek and Kalman, scored out of sample; EWMA line and Blume forecast in the calculator
 - [ ] Up and down beta; betas in crashes
 - [ ] Does beta pay? Security market line, Fama-MacBeth, betting against beta
 - [ ] Hedging with NIFTY futures out of sample, after F&O costs
@@ -83,12 +83,34 @@ versions of the market: the NIFTY ETF (dividends included, the price you can tra
 - **Extreme days (right):** Huber robust regression, which down-weights days with large surprises, gave
   1.009 on average (largest change: Adani Enterprises, 0.12); dropping the 10 biggest market days, 1.045.
 
+### 3. Shrinking beta toward 1 forecast next year's beta best; for next month's hedge, every method was within 0.5% of the plain 1-year beta
+
+<a href="docs/img/fc_score.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fc_score.png"><img src="docs/img/fc_score.gif" alt="Change in forecast error and hedged risk for six beta forecasts against the one-year rolling beta" width="760"></picture></a>
+
+At each month end from January 2014 to October 2026 (154 months, 43 stocks, beta to the NIFTY index),
+seven forecasts were made from data up to that day only, then scored two ways: squared error against the
+beta realised over the next 250 days (142 months have a full year ahead), and the variance left in the
+next month after selling beta × the holding of NIFTY. t-statistics compare each month's score with the
+1-year rolling beta's (Newey-West: 12 lags for the overlapping years, 2 for months).
+
+- **Next year's beta (left):** Blume's fixed rule, 0.67 × the 1-year beta + 0.33 (constants from Blume's
+  1971 US study, not fitted here), cut the error by 16% (t −3.5). The 3-year rolling beta cut it by 12%
+  (t −2.2) and Vasicek's shrinkage toward the average stock by 6% (t −5.2: small but steady).
+- **The Kalman filter** (a beta that drifts a little each day) depends on one setting, how fast beta may
+  drift. Fitted on 2011–13 for each stock, it raised the error by 16% (t 2.3): 5 of the 43 stocks got a
+  drift above 10⁻³ from three years of data. One shared setting (the median of those fits, also from
+  2011–13) cut the error by 4% (t −1.1).
+- **Next month's hedge (right):** the hedged variance moved by at most 0.5% across methods. Over a month,
+  the stock's own risk swamps small differences in the hedge ratio.
+
+<a href="docs/img/fc_paths.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fc_paths.png"><img src="docs/img/fc_paths.gif" alt="HDFC Bank's beta forecasts from 2014 to 2026: rolling one year, rolling three years, EWMA and Kalman" width="720"></picture></a>
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # also: measure; charts -> out/
+uv run bc report capm                       # also: measure, forecast; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -98,6 +120,7 @@ uv run pytest
 - `src/bc/capm.py`: excess returns over calendar days, OLS with plain and Newey-West standard errors,
   Benjamini-Hochberg, and a per-stock CAPM table annualised by calendar time.
 - `src/bc/measure.py`: weekly and monthly returns, Dimson beta and Huber robust beta.
+- `src/bc/forecast.py`: rolling, EWMA, Vasicek and Kalman beta forecasts, each from past days only.
 - `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
   rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).

@@ -78,4 +78,16 @@ function dimson(y, x) {
   return { beta: coef[1] + coef[2] + coef[3], parts: coef.slice(1) };
 }
 
-if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson };
+// EWMA beta for day t from days before t (mirrors bc/forecast.py ewma_beta); null until `seed`.
+function ewmaBeta(y, x, lam = 0.99, seed = 60) {
+  const out = new Array(y.length).fill(null);
+  let cxy = 0, vx = 0;
+  for (let i = 0; i < seed; i++) { cxy += x[i] * y[i] / seed; vx += x[i] * x[i] / seed; }
+  for (let t = seed; t < y.length; t++) {
+    if (t > seed) { cxy = lam * cxy + (1 - lam) * x[t - 1] * y[t - 1]; vx = lam * vx + (1 - lam) * x[t - 1] ** 2; }
+    out[t] = cxy / vx;
+  }
+  return out;
+}
+
+if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta };

@@ -54,6 +54,7 @@ const BC = $data;
       ["Beta", f2(r.beta), `${f2(r.beta - 1.96 * r.se_beta_nw)} to ${f2(r.beta + 1.96 * r.se_beta_nw)}`, `${f2(r.beta - 1.96 * r.se_beta)} to ${f2(r.beta + 1.96 * r.se_beta)}`],
       ["Alpha a year", pct(r.alpha * perYear), `${pct((r.alpha - 1.96 * r.se_alpha_nw) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha_nw) * perYear)}`, `${pct((r.alpha - 1.96 * r.se_alpha) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha) * perYear)}`],
       [`Dimson beta (yesterday ${f2(dm.parts[0])} + today ${f2(dm.parts[1])} + tomorrow ${f2(dm.parts[2])})`, f2(dm.beta), "", ""],
+      ["Forecast beta, Blume (0.67 × beta + 0.33)", f2(0.67 * r.beta + 0.33), "", ""],
       ["R² (share explained by NIFTY)", pct(r.r2), "", ""],
       ["Volatility NIFTY doesn't explain, a year", pct(r.resid_sd * Math.sqrt(perYear)), "", ""],
     ];
@@ -72,8 +73,13 @@ const BC = $data;
       xaxis: { title: el("bc-mkt").value === "NIFTY" ? "NIFTY index, %" : "NIFTY ETF, %", gridcolor: css("--grid"), zeroline: false }, yaxis: { title: `${sym}, %`, gridcolor: css("--grid"), zeroline: false } }),
     { displaylogo: false, responsive: true });
     const all = series(weekly, 1250), win = weekly ? 52 : 250, rb = rollingBeta(all.y.map((v, i) => i ? v : null), all.x.map((v, i) => i ? v : null), win);
-    Plotly.react("bc-roll", [{ x: all.dates, y: rb, mode: "lines", line: { color: css("--accent"), width: 2 }, name: "beta", hovertemplate: "%{x}: %{y:.2f}<extra></extra>" }],
-      Object.assign(base(), { margin: { l: 56, r: 16, t: 16, b: 40 }, showlegend: false,
+    // EWMA needs gap-free pairs: fill missing days with 0 only for the recursion's input
+    const ey = all.y.map((v) => v ?? 0), ex = all.x.map((v) => v ?? 0);
+    const eb = weekly ? null : ewmaBeta(ey.slice(1), ex.slice(1), 0.99, 60);
+    const traces = [{ x: all.dates, y: rb, mode: "lines", line: { color: css("--accent"), width: 2 }, name: "past year", hovertemplate: "%{x}: %{y:.2f}<extra>past year</extra>" }];
+    if (eb) traces.push({ x: all.dates.slice(1), y: eb, mode: "lines", line: { color: css("--text-2"), width: 1.2 }, name: "EWMA (λ 0.99)", hovertemplate: "%{x}: %{y:.2f}<extra>EWMA</extra>" });
+    Plotly.react("bc-roll", traces,
+      Object.assign(base(), { margin: { l: 56, r: 16, t: 32, b: 40 }, showlegend: !!eb, legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0 },
         xaxis: { gridcolor: css("--grid") }, yaxis: { title: `beta, past ${weekly ? "52 weeks" : "250 days"}`, gridcolor: css("--grid") } }),
       { displaylogo: false, responsive: true });
   };

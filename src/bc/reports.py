@@ -226,4 +226,151 @@ def report_measure(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"capm": report_capm, "measure": report_measure}
+HEDGE_MARKET = "NIFTY"  # futures track the index (QL-097)
+
+
+def _nw_t(d: np.ndarray, lags: int) -> float:
+    """t-statistic of the mean of d with a Newey-West (Bartlett) standard error."""
+    d = d[np.isfinite(d)]
+    n, m = len(d), d.mean()
+    g = [np.mean((d[j:] - m) * (d[:n - j] - m)) for j in range(lags + 1)]
+    lr = g[0] + 2 * sum((1 - j / (lags + 1)) * g[j] for j in range(1, lags + 1))
+    return float(m / np.sqrt(lr / n))
+
+
+def report_forecast(out_dir: Path) -> dict:
+    """Which beta forecast best predicts next year's beta and best hedges next month, monthly from
+    2014; settings fixed in advance or fitted on 2011-13 only."""
+    from bc.data import SYMBOLS
+    from bc.forecast import (
+        ewma_beta,
+        fit_kalman_ratio,
+        kalman_beta,
+        regression_scale,
+        rolling_beta,
+        vasicek,
+    )
+
+    R = returns().loc["2011-01-01":]
+    syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
+    X = R[syms + [HEDGE_MARKET]].dropna()
+    x = X[HEDGE_MARKET].to_numpy()
+    pre = X.index < MEASURE_START
+    month = X.index.to_period("M")
+    ends = np.flatnonzero(np.append(month[1:] != month[:-1], True))
+    ends = ends[(X.index[ends] >= pd.Timestamp(MEASURE_START) - pd.Timedelta(days=1))
+                & (ends < len(X) - 1)]
+
+    fc = {k: {} for k in ("rolling 1 year", "rolling 3 years", "EWMA (λ 0.99)", "Blume",
+                          "Vasicek", "Kalman (own drift)", "Kalman (shared drift)")}
+    se1 = {}
+    ratios = {}
+    for s in syms:
+        y = X[s].to_numpy()
+        r1, r3 = rolling_beta(y, x, 250), rolling_beta(y, x, 750)
+        fc["rolling 1 year"][s], fc["rolling 3 years"][s] = r1, r3
+        fc["EWMA (λ 0.99)"][s] = ewma_beta(y, x, 0.99)
+        fc["Blume"][s] = 0.67 * r1 + 0.33
+        ratios[s] = fit_kalman_ratio(y[pre], x[pre])
+        fc["Kalman (own drift)"][s] = kalman_beta(y, x, ratios[s],
+                                                  scale=regression_scale(y[pre], x[pre]))
+        # standard error of the 1-year slope, for Vasicek
+        resid_var = np.array([np.var(y[t - 250:t] - r1[t] * x[t - 250:t]) if np.isfinite(r1[t])
+                              else np.nan for t in range(len(y))])
+        var_x = np.array([np.var(x[t - 250:t]) if t >= 250 else np.nan for t in range(len(y))])
+        se1[s] = np.sqrt(resid_var / (250 * var_x))
+    shared = float(np.median(list(ratios.values())))  # one drift for all, still from 2011-13
+    for s in syms:
+        y = X[s].to_numpy()
+        fc["Kalman (shared drift)"][s] = kalman_beta(y, x, shared,
+                                                     scale=regression_scale(y[pre], x[pre]))
+    vas = {s: np.full(len(X), np.nan) for s in syms}
+    for t in ends:
+        b = np.array([fc["rolling 1 year"][s][t + 1] for s in syms])
+        se = np.array([se1[s][t + 1] for s in syms])
+        out = vasicek(b, se)
+        for s, v in zip(syms, out, strict=True):
+            vas[s][t + 1] = v
+    fc["Vasicek"] = vas
+
+    # score only months where every method has a forecast (same months for all)
+    ends = np.array([t for t in ends
+                     if all(np.isfinite(fc[k][s][t + 1]) for k in fc for s in syms)])
+    err_year = {k: [] for k in fc}
+    hedge = {k: [] for k in fc}
+    for i, t in enumerate(ends):
+        nxt = ends[i + 1] if i + 1 < len(ends) else len(X) - 1
+        year = slice(t + 1, t + 251)
+        month_days = slice(t + 1, nxt + 1)
+        for k in fc:
+            ey, hv = [], []
+            for s in syms:
+                y = X[s].to_numpy()
+                b = fc[k][s][t + 1]
+                if t + 251 <= len(X):
+                    real = np.polyfit(x[year], y[year], 1)[0]
+                    ey.append((b - real) ** 2)
+                hv.append(np.var(y[month_days] - b * x[month_days]))
+            err_year[k].append(np.mean(ey) if ey else np.nan)
+            hedge[k].append(np.mean(hv))
+    base = "rolling 1 year"
+    ey = {k: np.array(v) for k, v in err_year.items()}
+    hv = {k: np.array(v) for k, v in hedge.items()}
+    rel_y = {k: float(np.nanmean(ey[k]) / np.nanmean(ey[base])) for k in fc}
+    rel_h = {k: float(hv[k].mean() / hv[base].mean()) for k in fc}
+    t_y = {k: _nw_t(ey[k] - ey[base], 12) for k in fc if k != base}
+    t_h = {k: _nw_t(hv[k] - hv[base], 2) for k in fc if k != base}
+
+    s_ex = "HDFCBANK" if "HDFCBANK" in syms else syms[0]
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    idx = X.index
+    test = idx >= pd.Timestamp(MEASURE_START)
+    for k, c, lw in (("rolling 1 year", plots.MUTED, 1.0), ("rolling 3 years", plots.TEXT, 1.4),
+                     ("EWMA (λ 0.99)", plots.SERIES[1], 1.2),
+                     ("Kalman (shared drift)", plots.SERIES[0], 1.8)):
+        ax.plot(idx[test], fc[k][s_ex][test], color=c, lw=lw, label=k)
+    ax.set_ylabel(f"{s_ex}'s beta to NIFTY (forecast for the next day)")
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+    v = pd.Series(fc["rolling 1 year"][s_ex][test], index=idx[test])
+    ax.set_title(f"{s_ex}'s one-year beta ranged from {v.min():.2f} to {v.max():.2f} "
+                 "between 2014 and 2026")
+    plots.save(fig, out_dir, "fc_paths")
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.6))
+    names = [k for k in fc if k != base]
+    for ax, rel, tt, title in ((axes[0], rel_y, t_y, "error predicting next year's beta"),
+                               (axes[1], rel_h, t_h, "risk left by next month's hedge")):
+        vals = [(rel[k] - 1) * 100 for k in names]
+        ax.barh(range(len(names)), vals, color=[plots.SERIES[0] if v < 0 else plots.SERIES[1]
+                                                for v in vals])
+        ax.axvline(0, color=plots.TEXT_2, lw=0.8)
+        ax.set_yticks(range(len(names)), [f"{k} (t {tt[k]:.1f})".replace("t -", "t −")
+                                          for k in names], fontsize=8)
+        ax.set_xlabel("% change against the 1-year rolling beta (below 0 = better)")
+        ax.set_title(title, fontsize=10, fontweight="normal")
+        ax.grid(axis="y", visible=False)
+    best = min(names, key=lambda k: rel_y[k])
+    spread = max(abs(rel_h[k] - 1) for k in names)
+    fig.suptitle(f"{best} cut the error on next year's beta by {1 - rel_y[best]:.0%}; hedging "
+                 f"results differed by under {spread:.1%}", fontweight="bold")
+    fig.tight_layout()
+    plots.save(fig, out_dir, "fc_score")
+
+    return {
+        "stocks, months": (len(syms), len(ends),
+                           f"{X.index[ends[0]]:%b %Y} to {X.index[ends[-1]]:%b %Y}"),
+        "months with a full year ahead": int(np.isfinite(ey[base]).sum()),
+        "stocks with own drift ratio > 1e-3": int(sum(v > 1e-3 for v in ratios.values())),
+        "Kalman q/r ratio (2011-13): median, min, max": (
+            float(np.median(list(ratios.values()))), float(min(ratios.values())),
+            float(max(ratios.values()))),
+        "next-year beta MSE (absolute)": {k: round(float(np.nanmean(v)), 4) for k, v in ey.items()},
+        "next-year beta MSE vs rolling 1y (ratio, NW t)": {
+            k: (round(rel_y[k], 3), round(t_y.get(k, 0.0), 1)) for k in fc},
+        "next-month hedged variance vs rolling 1y (ratio, NW t)": {
+            k: (round(rel_h[k], 4), round(t_h.get(k, 0.0), 1)) for k in fc},
+        "example stock": s_ex,
+    }
+
+
+REPORTS = {"capm": report_capm, "measure": report_measure, "forecast": report_forecast}

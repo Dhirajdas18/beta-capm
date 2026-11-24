@@ -59,3 +59,15 @@ def test_browser_dimson_matches_python():
     py = dimson_beta(y, x)
     assert js["beta"] == pytest.approx(py["beta"], rel=1e-9)
     assert js["parts"] == pytest.approx(py["parts"], rel=1e-8)
+
+
+def test_browser_ewma_beta_matches_python():
+    from bc.forecast import ewma_beta
+
+    rng = np.random.default_rng(4)
+    x = rng.normal(0, 0.01, 400)
+    y = 1.1 * x + rng.normal(0, 0.008, 400)
+    js = _node(f"m.ewmaBeta({json.dumps(y.tolist())}, {json.dumps(x.tolist())}, 0.99, 60)")
+    py = ewma_beta(y, x, 0.99, 60)
+    assert js[:60] == [None] * 60
+    assert js[60:] == pytest.approx(py[60:].tolist(), rel=1e-9)
