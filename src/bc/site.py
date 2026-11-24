@@ -232,6 +232,8 @@ def build_html(data: pd.DataFrame) -> str:
                 config={"displaylogo": False, "responsive": True},
             )
         )
+        if not isinstance(out, str):  # give each chart an accessible name
+            body = f'<div role="figure" aria-label="{title}: chart">\n{body}\n</div>'
         sid = _slug(title)
         nav.append(f'<li><a href="#{sid}">{title}</a></li>')
         parts.append(f'<section id="{sid}">\n<h2>{title}</h2>\n<p>{blurb}</p>\n{body}\n</section>')

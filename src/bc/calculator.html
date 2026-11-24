@@ -1,15 +1,15 @@
 <form class="calc" id="bc" onsubmit="return false">
-  <label>Stock <select id="bc-sym"></select></label>
-  <label>Window <select id="bc-win">
+  <label>Stock <select id="bc-sym" name="stock"></select></label>
+  <label>Window <select id="bc-win" name="window">
     <option value="250">last year</option><option value="750">last 3 years</option><option value="1250" selected>last 5 years</option>
   </select></label>
-  <label>Returns <select id="bc-freq">
+  <label>Returns <select id="bc-freq" name="returns">
     <option value="daily" selected>daily</option><option value="weekly">weekly</option>
   </select></label>
-  <label>Market <select id="bc-mkt">
+  <label>Market <select id="bc-mkt" name="market">
     <option value="NIFTYBEES" selected>NIFTY ETF (with dividends, as traded)</option><option value="NIFTY">NIFTY index (price only)</option>
   </select></label>
-  <label>Holding, ₹ <input id="bc-amt" type="number" min="1000" step="1000" value="100000" inputmode="numeric" autocomplete="off"></label>
+  <label>Holding, ₹ <input id="bc-amt" name="holding" type="number" min="1000" step="1000" value="100000" inputmode="numeric" autocomplete="off"></label>
 </form>
 <p class="note" id="bc-note" aria-live="polite"></p>
 <div class="table-scroll"><table class="data">
@@ -73,7 +73,9 @@ const BC = $data;
     el("bc-note").textContent = `${sym}: ${yy.length} ${weekly ? "weeks" : "trading days"} to ${BC.last}. Each 1% NIFTY moved, ${sym} moved ${f2(r.beta)}% on average. ` +
       `Alpha t-statistic ${f2(t)}${Math.abs(t) < 1.96 ? " (not distinguishable from zero)" : ""}. ` +
       (amt > 0 ? hedgeNote(sym, amt, r) : "");
-    el("bc-scatter-title").textContent = `${sym} against the NIFTY ETF, ${weekly ? "weekly" : "daily"} returns above cash`;
+    const mktName = el("bc-mkt").value === "NIFTY" ? "the NIFTY index" : "the NIFTY ETF";
+    el("bc-scatter-title").textContent = `${sym} against ${mktName}, ${weekly ? "weekly" : "daily"} returns above cash`;
+    el("bc-scatter").setAttribute("aria-label", `${sym}'s ${weekly ? "weekly" : "daily"} excess return against ${mktName}'s, with the fitted line`);
     const lo = Math.min(...xx), hi = Math.max(...xx);
     Plotly.react("bc-scatter", [
       { x: xx.map((v) => v * 100), y: yy.map((v) => v * 100), mode: "markers", marker: { color: css("--muted"), size: 4, opacity: 0.6 }, name: weekly ? "weeks" : "days", hoverinfo: "skip" },
