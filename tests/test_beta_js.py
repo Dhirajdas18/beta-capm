@@ -97,3 +97,30 @@ def test_browser_futures_cost_matches_python():
     ):
         js = _node(f"m.futuresCost({buy}, {sell}, {orders}, {json.dumps(FUT)})")
         assert js == pytest.approx(futures_cost(buy, sell, orders), rel=1e-12)
+
+
+def test_browser_ewma_beta_over_gaps_starts_after_the_first_shared_day():
+    from bc.forecast import ewma_beta
+
+    rng = np.random.default_rng(6)
+    x = rng.normal(0, 0.01, 300)
+    y = 1.4 * x + rng.normal(0, 0.008, 300)
+    yg = [None] * 100 + y[100:].tolist()  # a stock listed on day 100
+    yg[150] = None  # and one missing day
+    js = _node(f"m.ewmaBetaGaps({json.dumps(yg)}, {json.dumps(x.tolist())}, 0.99, 60)")
+    keep = [i for i in range(300) if yg[i] is not None]
+    py = ewma_beta(y[keep], x[keep], 0.99, 60)
+    assert all(v is None for v in js[:160])  # nothing before 60 shared days
+    assert js[150] is None
+    assert [js[i] for i in keep[60:]] == pytest.approx(py[60:].tolist(), rel=1e-9)
+
+
+def test_browser_hedge_plan_matches_python_sizing_and_costs():
+    from bc.hedge import FUT, futures_cost, hedge_lots
+
+    js = _node(f"m.hedgePlan(1.2, 5000000, 25000, {json.dumps(FUT)})")
+    lot_value = FUT["lot"] * 25000
+    blume = 0.67 * 1.2 + 0.33
+    n = hedge_lots(5_000_000, blume, lot_value)
+    assert js["beta"] == pytest.approx(blume) and js["lots"] == n
+    assert js["yearly"] == pytest.approx(12 * futures_cost(n * lot_value, n * lot_value, 2))

@@ -29,3 +29,13 @@ def test_tail_beta_uses_only_the_worst_market_days():
     r = tail_beta(y, x, q=0.05)
     assert r["n"] == 50
     assert r["beta"] == pytest.approx(2.0)
+
+
+def test_updown_beta_skips_missing_days():
+    rng = np.random.default_rng(3)
+    x = rng.normal(0, 0.01, 3000)
+    y = x + rng.normal(0, 0.004, 3000)
+    y2, x2 = y.copy(), x.copy()
+    y2[5], x2[9] = np.nan, np.nan
+    keep = np.isfinite(y2) & np.isfinite(x2)
+    assert updown_beta(y2, x2)["up"] == pytest.approx(updown_beta(y[keep], x[keep])["up"])

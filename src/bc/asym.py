@@ -12,13 +12,20 @@ from bc.capm import _nw_cov
 
 def updown_beta(y, x, lags: int = 5) -> dict:
     y, x = np.asarray(y, float), np.asarray(x, float)
+    ok = np.isfinite(y) & np.isfinite(x)
+    y, x = y[ok], x[ok]
     X = np.column_stack([np.ones(len(x)), np.maximum(x, 0), np.minimum(x, 0)])
     coef, *_ = np.linalg.lstsq(X, y, rcond=None)
     cov = _nw_cov(X, y - X @ coef, lags)
     diff = coef[2] - coef[1]
     se = np.sqrt(cov[1, 1] + cov[2, 2] - 2 * cov[1, 2])
-    return {"up": float(coef[1]), "down": float(coef[2]), "diff": float(diff),
-            "t_diff": float(diff / se), "n": len(y)}
+    return {
+        "up": float(coef[1]),
+        "down": float(coef[2]),
+        "diff": float(diff),
+        "t_diff": float(diff / se),
+        "n": len(y),
+    }
 
 
 def tail_beta(y, x, q: float = 0.05) -> dict:

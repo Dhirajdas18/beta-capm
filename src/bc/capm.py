@@ -40,11 +40,17 @@ def ols(y, x, lags: int = 5) -> dict:
     s2 = u @ u / (n - 2)
     cov = s2 * np.linalg.inv(X.T @ X)
     nw = _nw_cov(X, u, lags)
-    return {"alpha": float(coef[0]), "beta": float(coef[1]),
-            "se_alpha": float(np.sqrt(cov[0, 0])), "se_beta": float(np.sqrt(cov[1, 1])),
-            "se_alpha_nw": float(np.sqrt(nw[0, 0])), "se_beta_nw": float(np.sqrt(nw[1, 1])),
-            "r2": float(1 - u @ u / ((y - y.mean()) @ (y - y.mean()))),
-            "resid_sd": float(np.sqrt(s2)), "n": n}
+    return {
+        "alpha": float(coef[0]),
+        "beta": float(coef[1]),
+        "se_alpha": float(np.sqrt(cov[0, 0])),
+        "se_beta": float(np.sqrt(cov[1, 1])),
+        "se_alpha_nw": float(np.sqrt(nw[0, 0])),
+        "se_beta_nw": float(np.sqrt(nw[1, 1])),
+        "r2": float(1 - u @ u / ((y - y.mean()) @ (y - y.mean()))),
+        "resid_sd": float(np.sqrt(s2)),
+        "n": n,
+    }
 
 
 def bh_reject(p, q: float = 0.05) -> np.ndarray:
@@ -59,8 +65,9 @@ def bh_reject(p, q: float = 0.05) -> np.ndarray:
     return out
 
 
-def capm_table(R: pd.DataFrame, symbols: list[str], market: str, rf: float,
-               lags: int = 5) -> pd.DataFrame:
+def capm_table(
+    R: pd.DataFrame, symbols: list[str], market: str, rf: float, lags: int = 5
+) -> pd.DataFrame:
     """CAPM regression of each symbol's excess return on the market's, over the rows where both
     have returns; α annualised by calendar time."""
     from scipy.stats import norm

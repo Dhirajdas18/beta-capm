@@ -33,20 +33,23 @@ const BC = $data;
   const rupees = (x) => "₹" + Math.round(x).toLocaleString("en-IN");
   const base = () => ({ paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
     font: { family: getComputedStyle(document.body).fontFamily, color: css("--text-2"), size: 12 } });
-  const series = (weekly, w) => {
-    const pick = { s: cols[el("bc-sym").value].slice(-w), m: cols[el("bc-mkt").value].slice(-w) };
+  const series = (weekly, w, mkt = el("bc-mkt").value) => {
+    const pick = { s: cols[el("bc-sym").value].slice(-w), m: cols[mkt].slice(-w) };
     let dates = BC.dates.slice(-w), data = pick;
     if (weekly) { const wk = toWeekly(pick, dates); data = wk.cols; dates = wk.dates; }
     return { y: excess(data.s, dates, BC.rf), x: excess(data.m, dates, BC.rf), dates };
   };
-  // Hedge in whole NIFTY futures lots at the latest index level, rolled monthly (bc/hedge.py).
-  const hedgeNote = (sym, amt, r) => {
-    const lotValue = BC.fut.lot * BC.nifty_level, want = r.beta * amt, lots = Math.round(want / lotValue);
-    const base = `To hedge ${rupees(amt)} of ${sym}, sell about ${rupees(want)} of NIFTY (beta × holding). `;
-    if (lots === 0) return base + `One NIFTY futures lot (${BC.fut.lot} units) is about ${rupees(lotValue)}, so this holding is too small to hedge with futures.`;
-    const notional = lots * lotValue, yearly = 12 * futuresCost(notional, notional, 2, BC.fut);
-    return base + `In futures that is ${lots} lot${lots > 1 ? "s" : ""} of ${BC.fut.lot} (${rupees(notional)}, a hedge ratio of ${f2(notional / amt)} against the ${f2(r.beta)} wanted), ` +
-      `costing about ${rupees(yearly)} a year to roll monthly (${pct(yearly / amt)} of the holding). The ${pct(1 - r.r2)} of its moves NIFTY doesn't explain stays unhedged.`;
+  // Hedge as bc/hedge.py sizes it: Blume beta from daily returns against the NIFTY index (what
+  // the futures track) over the chosen window, whole lots at the latest level, rolled monthly.
+  const hedgeNote = (sym, amt, w) => {
+    const { y, x } = series(false, w, "NIFTY");
+    const ok = y.map((v, i) => v !== null && x[i] !== null && i > 0);
+    const r = ols(y.filter((_, i) => ok[i]), x.filter((_, i) => ok[i]), 5);
+    const h = hedgePlan(r.beta, amt, BC.nifty_level, BC.fut), want = h.beta * amt;
+    const base = `To hedge ${rupees(amt)} of ${sym}, sell about ${rupees(want)} of NIFTY (Blume beta ${f2(h.beta)} against the NIFTY index, daily, × holding). `;
+    if (h.lots === 0) return base + `One NIFTY futures lot (${BC.fut.lot} units) is about ${rupees(h.lotValue)}, so this holding is too small to hedge with futures.`;
+    return base + `In futures that is ${h.lots} lot${h.lots > 1 ? "s" : ""} of ${BC.fut.lot} (${rupees(h.notional)}, a hedge ratio of ${f2(h.notional / amt)} against the ${f2(h.beta)} wanted), ` +
+      `costing about ${rupees(h.yearly)} a year to roll monthly (${pct(h.yearly / amt)} of the holding). The ${pct(1 - r.r2)} of its moves NIFTY doesn't explain stays unhedged.`;
   };
   const update = () => {
     const sym = el("bc-sym").value, w = parseInt(el("bc-win").value, 10), weekly = el("bc-freq").value === "weekly";
@@ -72,7 +75,7 @@ const BC = $data;
     const t = r.alpha / r.se_alpha_nw;
     el("bc-note").textContent = `${sym}: ${yy.length} ${weekly ? "weeks" : "trading days"} to ${BC.last}. Each 1% NIFTY moved, ${sym} moved ${f2(r.beta)}% on average. ` +
       `Alpha t-statistic ${f2(t)}${Math.abs(t) < 1.96 ? " (not distinguishable from zero)" : ""}. ` +
-      (amt > 0 ? hedgeNote(sym, amt, r) : "");
+      (amt > 0 ? hedgeNote(sym, amt, w) : "");
     const mktName = el("bc-mkt").value === "NIFTY" ? "the NIFTY index" : "the NIFTY ETF";
     el("bc-scatter-title").textContent = `${sym} against ${mktName}, ${weekly ? "weekly" : "daily"} returns above cash`;
     el("bc-scatter").setAttribute("aria-label", `${sym}'s ${weekly ? "weekly" : "daily"} excess return against ${mktName}'s, with the fitted line`);
@@ -85,9 +88,8 @@ const BC = $data;
       xaxis: { title: el("bc-mkt").value === "NIFTY" ? "NIFTY index, %" : "NIFTY ETF, %", gridcolor: css("--grid"), zeroline: false }, yaxis: { title: `${sym}, %`, gridcolor: css("--grid"), zeroline: false } }),
     { displaylogo: false, responsive: true });
     const all = series(weekly, 1250), win = weekly ? 52 : 250, rb = rollingBeta(all.y.map((v, i) => i ? v : null), all.x.map((v, i) => i ? v : null), win);
-    // EWMA needs gap-free pairs: fill missing days with 0 only for the recursion's input
-    const ey = all.y.map((v) => v ?? 0), ex = all.x.map((v) => v ?? 0);
-    const eb = weekly ? null : ewmaBeta(ey.slice(1), ex.slice(1), 0.99, 60);
+    // EWMA over the days both returns exist; nothing until 60 shared days
+    const eb = weekly ? null : ewmaBetaGaps(all.y.slice(1), all.x.slice(1), 0.99, 60);
     const traces = [{ x: all.dates, y: rb, mode: "lines", line: { color: css("--accent"), width: 2 }, name: "past year", hovertemplate: "%{x}: %{y:.2f}<extra>past year</extra>" }];
     if (eb) traces.push({ x: all.dates.slice(1), y: eb, mode: "lines", line: { color: css("--text-2"), width: 1.2 }, name: "EWMA (λ 0.99)", hovertemplate: "%{x}: %{y:.2f}<extra>EWMA</extra>" });
     Plotly.react("bc-roll", traces,

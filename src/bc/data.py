@@ -31,11 +31,15 @@ def fetch_yfinance(start: str = START, end: str | None = None) -> pd.DataFrame:
     that is fine for intraday ranges (ratios within one day). Returns use adj_close."""
     import yfinance as yf
 
-    tickers = ({f"{s}.NS": s for s in SYMBOLS} | {"^NSEI": INDEX, "^INDIAVIX": VIX}
-               | {f"{e}.NS": e for e in ETFS})
+    tickers = (
+        {f"{s}.NS": s for s in SYMBOLS}
+        | {"^NSEI": INDEX, "^INDIAVIX": VIX}
+        | {f"{e}.NS": e for e in ETFS}
+    )
     # threads=False: parallel downloads can lock yfinance's sqlite cache and drop a ticker
-    raw = yf.download(list(tickers), start=start, end=end, auto_adjust=False, progress=False,
-                      threads=False)
+    raw = yf.download(
+        list(tickers), start=start, end=end, auto_adjust=False, progress=False, threads=False
+    )
     raw = raw[list(FIELDS)].rename(columns=FIELDS, level=0).rename(columns=tickers, level=1)
     raw.columns.names = ["field", "symbol"]
     raw.index = pd.DatetimeIndex(raw.index.tz_localize(None), name="date")
@@ -145,14 +149,16 @@ def fetch_global(start: str = START, end: str | None = None) -> pd.DataFrame:
     two calendars would put US-only dates (and fake zero returns) into every NSE series."""
     import yfinance as yf
 
-    raw = yf.download(list(GLOBAL), start=start, end=end, auto_adjust=False, progress=False,
-                      threads=False)["Close"].rename(columns=GLOBAL)
+    raw = yf.download(
+        list(GLOBAL), start=start, end=end, auto_adjust=False, progress=False, threads=False
+    )["Close"].rename(columns=GLOBAL)
     raw.index = pd.DatetimeIndex(raw.index.tz_localize(None), name="date")
     return raw[list(GLOBAL.values())].sort_index()
 
 
-def weekly_asset_returns(prices: pd.DataFrame, glob: pd.DataFrame,
-                        fixes: Path = FIXES) -> pd.DataFrame:
+def weekly_asset_returns(
+    prices: pd.DataFrame, glob: pd.DataFrame, fixes: Path = FIXES
+) -> pd.DataFrame:
     """Friday-to-Friday returns of NIFTY (ETF), gold (ETF) and the US market in rupees; each
     series takes its own last close of the week, so the NSE and US calendars needn't match.
     `blank` rows of the fixes file for the US table's columns drop those bad prints first."""
@@ -162,7 +168,10 @@ def weekly_asset_returns(prices: pd.DataFrame, glob: pd.DataFrame,
         if row.symbol in glob.columns and row.date in glob.index:
             glob.loc[row.date, row.symbol] = float("nan")
     us = (glob["SP500TR"] * glob["USDINR"].ffill()).dropna()
-    cols = {"NIFTY": prices["NIFTYBEES"].dropna(), "gold": prices["GOLDBEES"].dropna(),
-            "US (₹)": us}
+    cols = {
+        "NIFTY": prices["NIFTYBEES"].dropna(),
+        "gold": prices["GOLDBEES"].dropna(),
+        "US (₹)": us,
+    }
     weekly = {k: v.resample("W-FRI").last() for k, v in cols.items()}
     return pd.DataFrame({k: v.pct_change(fill_method=None) for k, v in weekly.items()}).dropna()

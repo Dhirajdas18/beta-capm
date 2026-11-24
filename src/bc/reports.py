@@ -283,7 +283,7 @@ def report_measure(out_dir: Path) -> dict:
     ax.grid(axis="x", visible=False)
     ax.set_title(
         f"Lags and robust weights moved the average beta by at most "
-        f"{max(abs(v - vals[0]) for v in vals[1:]):.2f}"
+        f"{max(abs(v - vals[0]) for v in vals[1:]):.3f}"
     )
     plots.save(fig, out_dir, "meas_robust")
 
@@ -322,11 +322,9 @@ HEDGE_MARKET = "NIFTY"  # futures track the index (QL-097)
 
 def _nw_t(d: np.ndarray, lags: int) -> float:
     """t-statistic of the mean of d with a Newey-West (Bartlett) standard error."""
-    d = d[np.isfinite(d)]
-    n, m = len(d), d.mean()
-    g = [np.mean((d[j:] - m) * (d[: n - j] - m)) for j in range(lags + 1)]
-    lr = g[0] + 2 * sum((1 - j / (lags + 1)) * g[j] for j in range(1, lags + 1))
-    return float(m / np.sqrt(lr / n))
+    from bc.pricing import _nw_t_mean
+
+    return _nw_t_mean(np.asarray(d, float), lags)
 
 
 def report_forecast(out_dir: Path) -> dict:
@@ -647,15 +645,22 @@ def report_asym(out_dir: Path) -> dict:
     }
 
 
-# Zerodha equity delivery charges (as used in correlation-heatmap), per rupee traded
+# Zerodha equity delivery charges (zerodha.com/charges, November 2026), per rupee traded
 DELIVERY = {
     "stt": 0.001,
     "stamp_buy": 0.00015,
-    "exchange": 0.0000322,
+    "exchange": 0.0000307,
     "sebi": 0.000001,
     "gst": 0.18,
     "slippage": 0.0005,
 }
+
+
+def _delivery_buy(amount: float) -> float:
+    """Cost of buying `amount` (a share of the portfolio) with nothing sold."""
+    d = DELIVERY
+    side = (d["exchange"] + d["sebi"]) * (1 + d["gst"]) + d["slippage"] + d["stt"]
+    return amount * (side + d["stamp_buy"])
 
 
 def _delivery_cost(turnover: float) -> float:
@@ -765,6 +770,7 @@ def report_pricing(out_dir: Path) -> dict:
     breakeven = bab_alpha / mean_turn  # per-side cost (per rupee traded) that zeroes the alpha
     lo = lo_ret
     lo_cost = lo_turn.map(_delivery_cost)
+    lo_cost.iloc[0] = _delivery_buy(1.0)  # the first month buys the whole portfolio
     lo_net = lo - lo_cost
     ew = pd.Series(
         [float(Rn.loc[t, B.loc[t].dropna().index].mean()) for t in B.index], index=B.index

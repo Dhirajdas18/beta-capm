@@ -66,19 +66,21 @@ def calculator_section(data: pd.DataFrame) -> str:
 
 def _pricing(data: pd.DataFrame) -> dict:
     from bc.pricing import beta_sorts
-    from bc.reports import _delivery_cost, _monthly_panel
+    from bc.reports import _delivery_buy, _delivery_cost, _monthly_panel
 
     B, Rn, mkt = _monthly_panel(data)
     srt = beta_sorts(B, Rn)
     ew = pd.Series([float(Rn.loc[t, B.loc[t].dropna().index].mean()) for t in B.index], B.index)
-    lo_net = srt["low"] - srt["low_turnover"].map(_delivery_cost)
+    cost = srt["low_turnover"].map(_delivery_cost)
+    cost.iloc[0] = _delivery_buy(1.0)  # the first month buys the whole portfolio
+    lo_net = srt["low"] - cost
     return {
         "Q": srt["quintiles"],
         "bab": srt["bab"],
         "low": lo_net,
         "ew": ew,
         "mkt": mkt,
-        "dates": list((B.index + 1).strftime("%Y-%m-%d")),
+        "dates": list((B.index + 1).to_timestamp(how="end").strftime("%Y-%m-%d")),
     }
 
 
@@ -155,7 +157,7 @@ def factors_figure(data: pd.DataFrame) -> go.Figure:
     from bc.reports import _factor_panel
 
     B, Rn, _, chars, _, _ = _factor_panel(data)
-    dates = list((B.index + 1).strftime("%Y-%m-%d"))
+    dates = list((B.index + 1).to_timestamp(how="end").strftime("%Y-%m-%d"))
     fig = go.Figure()
     for k, sign, name, c in (
         ("momentum", 1, "momentum: winners − losers", plots.SERIES[1]),

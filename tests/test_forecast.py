@@ -30,7 +30,8 @@ def test_vasicek_shrinks_noisy_estimates_more():
     b = np.array([0.5, 1.5, 1.0])
     se = np.array([0.05, 0.4, 0.1])
     out = vasicek(b, se)
-    prior_m, prior_v = b.mean(), b.var(ddof=1)
+    # the spread of true betas = spread of estimates minus their average sampling noise
+    prior_m, prior_v = b.mean(), b.var(ddof=1) - np.mean(se**2)
     w = prior_v / (prior_v + se**2)
     assert out == pytest.approx(w * b + (1 - w) * prior_m)
     assert abs(out[1] - prior_m) / abs(b[1] - prior_m) < abs(out[0] - prior_m) / abs(b[0] - prior_m)
@@ -56,3 +57,16 @@ def test_kalman_forecast_ignores_the_day_itself():
     y2 = y.copy()
     y2[300:] += 0.05
     assert kalman_beta(y2, x, 1e-4)[300] == pytest.approx(k1[300])
+
+
+def test_vasicek_with_noise_larger_than_the_spread_shrinks_fully():
+    out = vasicek(np.array([0.9, 1.1]), np.array([1.0, 1.0]))
+    assert out == pytest.approx([1.0, 1.0], abs=1e-6)
+
+
+def test_kalman_without_a_training_scale_gives_no_forecast_during_its_warm_up():
+    rng = np.random.default_rng(4)
+    x = rng.normal(0, 0.01, 600)
+    y = x + rng.normal(0, 0.005, 600)
+    k = kalman_beta(y, x, 1e-4)
+    assert np.isnan(k[:250]).all() and np.isfinite(k[250:]).all()

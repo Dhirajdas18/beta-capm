@@ -3,7 +3,8 @@
 - rolling_beta: OLS slope over the previous w days.
 - ewma_beta: exponentially weighted covariance ÷ variance (no intercept, daily means ≈ 0).
 - vasicek: shrink each stock's beta toward the cross-sectional average, by how noisy it is:
-  w = σ²_prior / (σ²_prior + se²), β = w·β̂ + (1 − w)·mean.
+  w = σ²_prior / (σ²_prior + se²), β = w·β̂ + (1 − w)·mean, with σ²_prior the spread of the
+  estimates minus their average se².
 - kalman_beta: β follows a random walk (step variance q); y_t = β_t·x_t + ε_t (variance r).
   Only the ratio q/r matters for the path; fit_kalman_ratio picks it by maximum likelihood on a
   training period.
@@ -40,7 +41,8 @@ def ewma_beta(y, x, lam: float = 0.99, seed: int = 60) -> np.ndarray:
 
 def vasicek(betas, ses) -> np.ndarray:
     b, se = np.asarray(betas, float), np.asarray(ses, float)
-    m, v = b.mean(), b.var(ddof=1)
+    # spread of true betas = spread of the estimates minus their average sampling noise
+    m, v = b.mean(), max(b.var(ddof=1) - np.mean(se**2), 1e-12)
     w = v / (v + se**2)
     return w * b + (1 - w) * m
 
@@ -73,8 +75,13 @@ def regression_scale(y, x) -> tuple[float, float]:
     return float(np.var(y - icpt - slope * x)), float(np.var(x))
 
 
-def kalman_beta(y, x, ratio: float, scale=None) -> np.ndarray:
-    return _kalman(np.asarray(y, float), np.asarray(x, float), ratio, scale=scale)[0]
+def kalman_beta(y, x, ratio: float, scale=None, seed: int = 250) -> np.ndarray:
+    """Without a training `scale`, the scale comes from the first `seed` days, so forecasts for
+    those days would see the future: they are left as NaN."""
+    out = _kalman(np.asarray(y, float), np.asarray(x, float), ratio, scale=scale, seed=seed)[0]
+    if scale is None:
+        out[:seed] = np.nan
+    return out
 
 
 def fit_kalman_ratio(y, x, grid=None) -> float:

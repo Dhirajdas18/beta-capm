@@ -123,6 +123,25 @@ function updownBeta(y, x, lags = 5) {
   return { up: coef[1], down: coef[2], diff, t_diff: diff / se, n };
 }
 
+// EWMA beta over a series with gaps: run on the days where both returns exist, nulls elsewhere
+// (no forecast until `seed` shared days).
+function ewmaBetaGaps(y, x, lam = 0.99, seed = 60) {
+  const keep = y.map((v, i) => (v !== null && x[i] !== null ? i : -1)).filter((i) => i >= 0);
+  const out = new Array(y.length).fill(null);
+  if (keep.length <= seed) return out;
+  const b = ewmaBeta(keep.map((i) => y[i]), keep.map((i) => x[i]), lam, seed);
+  keep.forEach((i, j) => { out[i] = b[j]; });
+  return out;
+}
+
+// Futures hedge as bc/hedge.py sizes it: Blume beta (to the NIFTY index), whole lots, monthly
+// roll cost for a year.
+function hedgePlan(rawBeta, amount, niftyLevel, fut) {
+  const beta = 0.67 * rawBeta + 0.33, lotValue = fut.lot * niftyLevel;
+  const lots = Math.round(amount * beta / lotValue), notional = lots * lotValue;
+  return { beta, lotValue, lots, notional, yearly: lots ? 12 * futuresCost(notional, notional, 2, fut) : 0 };
+}
+
 // ₹ cost of a futures trade (mirrors bc/hedge.py futures_cost; `fut` is its FUT table).
 function futuresCost(buy, sell, orders, fut) {
   if (orders === 0) return 0;
@@ -131,4 +150,4 @@ function futuresCost(buy, sell, orders, fut) {
   return (brokerage + fees) * (1 + fut.gst) + sell * fut.stt_sell + buy * fut.stamp_buy + (buy + sell) * fut.slippage;
 }
 
-if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta, updownBeta, futuresCost };
+if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson, ewmaBeta, updownBeta, futuresCost, ewmaBetaGaps, hedgePlan };

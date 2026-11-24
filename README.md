@@ -25,7 +25,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 
 ## Findings
 
-### 1. Betas ran from 0.44 to 1.81 and the market explained a median 25% of daily moves; 6 of 49 alphas looked significant, about what luck gives, and none survived a multiple-testing correction
+### 1. Betas ran from 0.44 to 1.81 and the market explained a median 25% of daily moves; 6 of 49 alphas looked significant, more than luck alone gives, but none survived a multiple-testing correction
 
 <a href="docs/img/capm_betas.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/capm_betas.png"><img src="docs/img/capm_betas.gif" alt="Beta of each NIFTY 50 stock with Newey-West and plain OLS 95 percent ranges" width="720"></picture></a>
 
@@ -49,13 +49,13 @@ cluster in time and change in size.
 <td><a href="docs/img/capm_alphas.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/capm_alphas.png"><img src="docs/img/capm_alphas.gif" alt="Histogram of 49 alpha t-statistics against the normal curve expected with no true alpha"></picture></a></td>
 </tr></table>
 
-- **Alpha is mostly noise (right):** 6 alphas had a Newey-West p-value below 0.05 (BSE, BEL, M&M,
-  Coal India, Bajaj Auto, Bharti Airtel, all positive), against 2.5 expected by luck among 49. None passed
+- **No alpha survives testing (right):** 6 alphas had a Newey-West p-value below 0.05 (BSE, BEL, M&M,
+  Coal India, Bajaj Auto, Bharti Airtel, all positive), against 2.5 expected by luck among 49 (the chance of 6 or more by luck is 3.5%). None passed
   a Benjamini-Hochberg false-discovery-rate test at 5%, or a Bonferroni test.
 - **Survivors:** 80% of the alphas were positive (average +8.0% a year). These are today's NIFTY members;
   stocks that dropped out of the index in the period are missing from the list.
 
-### 2. Which market you regress on mattered more than how: daily betas against the NIFTY ETF averaged 7% higher than against the index, while frequency, lags and robust weights moved them by 0.04 or less
+### 2. Which market you regress on mattered more than how: daily betas against the NIFTY ETF averaged 7% higher than against the index, while frequency, lags and robust weights moved them by 0.043 or less
 
 <a href="docs/img/meas_market.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_market.png"><img src="docs/img/meas_market.gif" alt="Average beta of 43 stocks against the NIFTY ETF and the NIFTY index for daily, weekly and monthly returns" width="720"></picture></a>
 
@@ -95,13 +95,14 @@ next month after selling beta × the holding of NIFTY. t-statistics compare each
 
 - **Next year's beta (left):** Blume's fixed rule, 0.67 × the 1-year beta + 0.33 (constants from Blume's
   1971 US study, not fitted here), cut the error by 16% (t −3.5). The 3-year rolling beta cut it by 12%
-  (t −2.2) and Vasicek's shrinkage toward the average stock by 6% (t −5.2: small but steady).
+  (t −2.2) and Vasicek's shrinkage toward the average stock by 7% (t −4.9: small but steady).
 - **The Kalman filter** (a beta that drifts a little each day) depends on one setting, how fast beta may
-  drift. Fitted on 2011–13 for each stock, it raised the error by 16% (t 2.3): 5 of the 43 stocks got a
+  drift. Fitted on 2011–13 for each stock, it raised the error by 16% (t 2.4): 5 of the 43 stocks got a
   drift above 10⁻³ from three years of data. One shared setting (the median of those fits, also from
   2011–13) cut the error by 4% (t −1.1).
-- **Next month's hedge (right):** the hedged variance moved by at most 0.5% across methods. Over a month,
-  the stock's own risk swamps small differences in the hedge ratio.
+- **Next month's hedge (right):** the hedged variance moved by at most 0.5% across methods. EWMA and
+  the shared-drift Kalman were significantly lower (t −3.5), but by only 0.4%. That is consistent with a
+  stock's own risk, about three quarters of its moves (finding 1), dwarfing small hedge-ratio differences.
 
 <a href="docs/img/fc_paths.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fc_paths.png"><img src="docs/img/fc_paths.gif" alt="HDFC Bank's beta forecasts from 2014 to 2026: rolling one year, rolling three years, EWMA and Kalman" width="720"></picture></a>
 
@@ -118,7 +119,7 @@ Newey-West t for the difference).
   Tech Mahindra (0.60 up, 0.95 down), NTPC and Apollo Hospitals. None had a significant up > down.
 - **An equal-weight portfolio** of the 43: up 0.93, down 1.02 (t 4.6), and down > up in both 2014–19
   (0.95, 1.06) and 2020–26 (0.92, 1.01).
-- **Crash beta,** the slope on NIFTY's worst 5% of days (159 days, falls of 1.5% or more), averaged 0.995
+- **Crash beta,** the slope on NIFTY's worst 5% of days (159 days, falls of about 1.5% or more: 1.48% above cash), averaged 0.995
   against 0.979 for the plain beta, and correlated 0.83 with it across stocks.
 
 <table><tr>
@@ -143,7 +144,7 @@ month's, above cash. The market premium is the NIFTY ETF's (dividends included):
 - **Beta fifths (chart above):** realised betas ran from 0.73 to 1.50; returns above cash were 11.0%,
   16.0%, 16.2%, 13.5% and 15.1% a year from lowest to highest. Every fifth sits far above the CAPM line,
   and the Fama-MacBeth intercept was 15.1% a year (t 2.5): these are today's NIFTY 50 members looking
-  back, so survivorship lifts every group. Compare the groups with each other, not with the line.
+  back, so consistent with survivorship lifting every group. Compare the groups with each other, not with the line.
 
 <a href="docs/img/price_bab.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/price_bab.png"><img src="docs/img/price_bab.gif" alt="Rupee growth of betting against beta, the low-beta fifth after costs, all stocks equal weight and the NIFTY ETF" width="720"></picture></a>
 
@@ -151,7 +152,7 @@ month's, above cash. The market premium is the NIFTY ETF's (dividends included):
   6.9% a year above cash before costs, volatility 16.8%, Sharpe 0.41; alpha against the ETF 7.2% a year,
   t 1.65, market beta −0.05. It traded 34% of its position a month, so costs above 1.8% per rupee traded
   would erase the alpha; shorting needs stock futures, whose costs aren't modelled here.
-- **Long-only lowest-beta fifth:** 10.6% a year above cash after Zerodha delivery costs (0.38% a year),
+- **Long-only lowest-beta fifth:** 10.6% a year above cash after Zerodha delivery costs (0.39% a year),
   Sharpe 0.71. All stocks equally weighted, the same survivors with no costs, made Sharpe 0.86; the
   low-beta fifth trailed it by 3.8% a year (t −1.3) with beta 0.73 against 1.04.
 
@@ -184,7 +185,7 @@ bid-ask spread.
   showed is survivorship, so it isn't a return to expect.
 - **Lot size (right):** with today's 65-unit lot at each month's NIFTY level, one lot grew from ₹3.4
   lakh to ₹14.7 lakh. From mid-2024 a ₹10 lakh portfolio's nearest whole lot gave a hedge ratio of
-  1.44 to 1.70; a ₹50 lakh one was never more than 14% off the target. Real lot sizes in past years differed.
+  1.44 to 1.70; a ₹50 lakh one was never more than 14.3% off the target. Real lot sizes in past years differed.
 - **Costs:** STT alone, 0.05% of the futures sold each month, is 0.6% of the hedged amount a year.
 
 ### 7. High-volatility stocks beat low-volatility ones by 12.4% a year among today's NIFTY 50, the opposite of the usual finding, and survivorship can't be ruled out as the reason; momentum was positive but not significant
@@ -211,8 +212,8 @@ weight, next month's return, before costs.
 - **All three together (Fama-MacBeth, scores standardised each month):** per one standard deviation,
   beta −2.9% a year (t −1.9), momentum +2.0% (t 1.15), volatility +6.7% (t 3.36). Within sectors: beta
   −3.1% (t −2.9), momentum +0.8% (t 0.66), volatility +4.3% (t 2.66). Three of the six slopes pass
-  Benjamini-Hochberg: volatility both ways and beta within sectors. Holding volatility fixed, higher beta
-  went with lower returns.
+  Benjamini-Hochberg: volatility both ways and beta within sectors. Within sectors and holding
+  volatility fixed, higher beta went with lower returns (the raw-score version, t −1.9, didn't pass).
 
 ## Quick start
 

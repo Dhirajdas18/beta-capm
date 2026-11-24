@@ -6,8 +6,8 @@ what the ETF's dividend-inclusive return above cash gives. Basis risk (the futur
 its fair price) is left out.
 
 FUT holds Zerodha's equity-futures charges as listed on zerodha.com/charges in November 2026,
-applied to every year (futures STT was lower before 2024, so earlier years are charged more than
-they paid). Slippage is an assumption: half a typical bid-ask spread per side.
+applied to every year (futures STT was 0.02% or less in earlier years, so earlier years are
+charged more than they paid). Slippage is an assumption: half a typical bid-ask spread per side.
 """
 
 import numpy as np

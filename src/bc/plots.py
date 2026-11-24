@@ -166,8 +166,11 @@ def _grow_line(line):
             line.set_data(x, y)
             return
         t = f - k
-        line.set_data(np.append(x[: k + 1], x[k] + t * (x[k + 1] - x[k])),
-                      np.append(y[: k + 1], y[k] + t * (y[k + 1] - y[k])))
+        line.set_data(
+            np.append(x[: k + 1], x[k] + t * (x[k + 1] - x[k])),
+            np.append(y[: k + 1], y[k] + t * (y[k + 1] - y[k])),
+        )
+
     return at
 
 
@@ -183,6 +186,7 @@ def _grow_points(coll):
             coll.set_facecolors(face[:k])
         if len(sizes) > 1:
             coll.set_sizes(sizes[:k])
+
     return at
 
 
@@ -190,8 +194,15 @@ def _grow_segments(coll):
     segs = [np.asarray(sg, dtype=float).copy() for sg in coll.get_segments()]
 
     def at(p):
-        coll.set_segments([np.vstack([sg[0], sg[0] + p * (sg[-1] - sg[0])]) if len(sg) == 2
-                           else sg[: max(1, int(round(p * len(sg))))] for sg in segs])
+        coll.set_segments(
+            [
+                np.vstack([sg[0], sg[0] + p * (sg[-1] - sg[0])])
+                if len(sg) == 2
+                else sg[: max(1, int(round(p * len(sg))))]
+                for sg in segs
+            ]
+        )
+
     return at
 
 
@@ -217,12 +228,12 @@ def _animator(fig):
                 # Stacked or floating bars scale their start too, so pieces stay attached.
                 if cont.orientation == "horizontal":
                     w, x0 = bar.get_width(), bar.get_x()
-                    steps.append(lambda p, b=bar, w=w, x0=x0: (b.set_x(x0 * p),
-                                                              b.set_width(w * p)))
+                    steps.append(lambda p, b=bar, w=w, x0=x0: (b.set_x(x0 * p), b.set_width(w * p)))
                 else:
                     h, y0 = bar.get_height(), bar.get_y()
-                    steps.append(lambda p, b=bar, h=h, y0=y0: (b.set_y(y0 * p),
-                                                              b.set_height(h * p)))
+                    steps.append(
+                        lambda p, b=bar, h=h, y0=y0: (b.set_y(y0 * p), b.set_height(h * p))
+                    )
         for patch in ax.patches:
             if patch not in in_bars:
                 steps.append(_fade(patch))
@@ -250,6 +261,7 @@ def _animator(fig):
                 t.arrow_patch.set_alpha(alpha * fade)
             if t.get_bbox_patch() is not None:
                 t.get_bbox_patch().set_alpha(fade)
+
     return at
 
 
@@ -275,8 +287,15 @@ def _save_gif(fig, path: Path) -> None:
     grow(1.0)  # leave the figure finished
     palette = frames[IN_FRAMES].quantize(colors=255, method=Image.Quantize.MEDIANCUT)
     frames = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0,
-                   optimize=True, disposal=1)
+    frames[0].save(
+        path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations,
+        loop=0,
+        optimize=True,
+        disposal=1,
+    )
 
 
 def save(fig, out_dir: Path, name: str, animate: bool = True) -> Path:

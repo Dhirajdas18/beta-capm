@@ -24,8 +24,14 @@ def dimson_beta(y, x, lags: int = 1) -> dict:
     """Sum of slopes on x[t−lags] … x[t+lags]; `parts` lists them from the earliest."""
     y, x = np.asarray(y, float), np.asarray(x, float)
     n = len(x)
-    cols = [np.r_[np.full(k, np.nan), x[: n - k]] if k > 0 else
-            np.r_[x[-k:], np.full(-k, np.nan)] if k < 0 else x for k in range(lags, -lags - 1, -1)]
+    cols = [
+        np.r_[np.full(k, np.nan), x[: n - k]]
+        if k > 0
+        else np.r_[x[-k:], np.full(-k, np.nan)]
+        if k < 0
+        else x
+        for k in range(lags, -lags - 1, -1)
+    ]
     A = np.column_stack(cols)
     ok = np.isfinite(A).all(axis=1) & np.isfinite(y)
     coef, *_ = np.linalg.lstsq(np.column_stack([np.ones(ok.sum()), A[ok]]), y[ok], rcond=None)

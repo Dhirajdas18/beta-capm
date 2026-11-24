@@ -78,6 +78,10 @@ def beta_sorts(B: pd.DataFrame, Rnext: pd.DataFrame) -> dict:
         low.append(float(lw @ r))
         w_prev, lw_prev = w, lw
     idx = B.index
-    return {"quintiles": pd.DataFrame(q, index=idx), "bab": pd.Series(bab, index=idx),
-            "low": pd.Series(low, index=idx), "bab_turnover": pd.Series(bab_turn, index=idx),
-            "low_turnover": pd.Series(low_turn, index=idx)}
+    return {
+        "quintiles": pd.DataFrame(q, index=idx),
+        "bab": pd.Series(bab, index=idx),
+        "low": pd.Series(low, index=idx),
+        "bab_turnover": pd.Series(bab_turn, index=idx),
+        "low_turnover": pd.Series(low_turn, index=idx),
+    }
