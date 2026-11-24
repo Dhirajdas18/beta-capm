@@ -6,6 +6,9 @@
   <label>Returns <select id="bc-freq">
     <option value="daily" selected>daily</option><option value="weekly">weekly</option>
   </select></label>
+  <label>Market <select id="bc-mkt">
+    <option value="NIFTYBEES" selected>NIFTY ETF (with dividends, as traded)</option><option value="NIFTY">NIFTY index (price only)</option>
+  </select></label>
   <label>Holding, ₹ <input id="bc-amt" type="number" min="1000" step="1000" value="100000" inputmode="numeric" autocomplete="off"></label>
 </form>
 <p class="note" id="bc-note" aria-live="polite"></p>
@@ -31,7 +34,7 @@ const BC = $data;
   const base = () => ({ paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
     font: { family: getComputedStyle(document.body).fontFamily, color: css("--text-2"), size: 12 } });
   const series = (weekly, w) => {
-    const pick = { s: cols[el("bc-sym").value].slice(-w), m: cols[BC.market].slice(-w) };
+    const pick = { s: cols[el("bc-sym").value].slice(-w), m: cols[el("bc-mkt").value].slice(-w) };
     let dates = BC.dates.slice(-w), data = pick;
     if (weekly) { const wk = toWeekly(pick, dates); data = wk.cols; dates = wk.dates; }
     return { y: excess(data.s, dates, BC.rf), x: excess(data.m, dates, BC.rf), dates };
@@ -43,13 +46,14 @@ const BC = $data;
     const ok = y.map((v, i) => v !== null && x[i] !== null && i > 0);
     const yy = y.filter((_, i) => ok[i]), xx = x.filter((_, i) => ok[i]);
     if (yy.length < 30) { el("bc-out").innerHTML = ""; el("bc-note").textContent = `Not enough shared history for ${sym} in this window.`; Plotly.purge("bc-scatter"); return; }
-    const r = ols(yy, xx, weekly ? 2 : 5);
+    const r = ols(yy, xx, weekly ? 2 : 5), dm = dimson(yy, xx);
     // calendar time from the price before the first return used to the last (as capm.py)
     const i0 = ok.indexOf(true), i1 = ok.lastIndexOf(true);
     const perYear = yy.length / ((Date.parse(dates[i1]) - Date.parse(dates[i0 - 1])) / (365.25 * 86400000));
     const rows = [
       ["Beta", f2(r.beta), `${f2(r.beta - 1.96 * r.se_beta_nw)} to ${f2(r.beta + 1.96 * r.se_beta_nw)}`, `${f2(r.beta - 1.96 * r.se_beta)} to ${f2(r.beta + 1.96 * r.se_beta)}`],
       ["Alpha a year", pct(r.alpha * perYear), `${pct((r.alpha - 1.96 * r.se_alpha_nw) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha_nw) * perYear)}`, `${pct((r.alpha - 1.96 * r.se_alpha) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha) * perYear)}`],
+      [`Dimson beta (yesterday ${f2(dm.parts[0])} + today ${f2(dm.parts[1])} + tomorrow ${f2(dm.parts[2])})`, f2(dm.beta), "", ""],
       ["R² (share explained by NIFTY)", pct(r.r2), "", ""],
       ["Volatility NIFTY doesn't explain, a year", pct(r.resid_sd * Math.sqrt(perYear)), "", ""],
     ];
@@ -65,7 +69,7 @@ const BC = $data;
       { x: [lo * 100, hi * 100], y: [(r.alpha + r.beta * lo) * 100, (r.alpha + r.beta * hi) * 100], mode: "lines", line: { color: css("--accent"), width: 2.5 }, name: `fitted line, beta ${f2(r.beta)}` },
       { x: [lo * 100, hi * 100], y: [lo * 100, hi * 100], mode: "lines", line: { color: css("--text-2"), width: 1, dash: "dash" }, name: "beta 1" },
     ], Object.assign(base(), { margin: { l: 56, r: 16, t: 32, b: 48 }, legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0 },
-      xaxis: { title: "NIFTY ETF, %", gridcolor: css("--grid"), zeroline: false }, yaxis: { title: `${sym}, %`, gridcolor: css("--grid"), zeroline: false } }),
+      xaxis: { title: el("bc-mkt").value === "NIFTY" ? "NIFTY index, %" : "NIFTY ETF, %", gridcolor: css("--grid"), zeroline: false }, yaxis: { title: `${sym}, %`, gridcolor: css("--grid"), zeroline: false } }),
     { displaylogo: false, responsive: true });
     const all = series(weekly, 1250), win = weekly ? 52 : 250, rb = rollingBeta(all.y.map((v, i) => i ? v : null), all.x.map((v, i) => i ? v : null), win);
     Plotly.react("bc-roll", [{ x: all.dates, y: rb, mode: "lines", line: { color: css("--accent"), width: 2 }, name: "beta", hovertemplate: "%{x}: %{y:.2f}<extra></extra>" }],

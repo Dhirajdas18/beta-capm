@@ -62,4 +62,20 @@ function rollingBeta(y, x, w) {
   return out;
 }
 
-if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta };
+// Dimson beta: slopes on the market's previous, same and next value, added up (mirrors
+// bc/measure.py dimson_beta with one lag). Solves the 4×4 normal equations.
+function dimson(y, x) {
+  const rows = [];
+  for (let t = 1; t < x.length - 1; t++) rows.push([1, x[t - 1], x[t], x[t + 1], y[t]]);
+  const A = Array.from({ length: 4 }, () => new Array(5).fill(0));
+  for (const r of rows) for (let i = 0; i < 4; i++) { for (let j = 0; j < 4; j++) A[i][j] += r[i] * r[j]; A[i][4] += r[i] * r[4]; }
+  for (let c = 0; c < 4; c++) {  // Gauss-Jordan with partial pivoting
+    let p = c; for (let i = c + 1; i < 4; i++) if (Math.abs(A[i][c]) > Math.abs(A[p][c])) p = i;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let i = 0; i < 4; i++) if (i !== c) { const f = A[i][c] / A[c][c]; for (let j = c; j < 5; j++) A[i][j] -= f * A[c][j]; }
+  }
+  const coef = A.map((r, i) => r[4] / r[i]);
+  return { beta: coef[1] + coef[2] + coef[3], parts: coef.slice(1) };
+}
+
+if (typeof module !== "undefined") module.exports = { excess, ols, toWeekly, rollingBeta, dimson };

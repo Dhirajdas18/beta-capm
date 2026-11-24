@@ -115,4 +115,115 @@ def report_capm(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"capm": report_capm}
+MEASURE_START = "2014-01-01"
+
+
+def report_measure(out_dir: Path) -> dict:
+    """Beta by return frequency, by market proxy (ETF or index), with Dimson lags and robust
+    regression, for the stocks with prices every day since 2014."""
+    from bc.capm import excess, ols
+    from bc.data import SYMBOLS
+    from bc.measure import dimson_beta, huber_beta, resampled_returns
+
+    R = returns().loc[MEASURE_START:]
+    syms = [s for s in SYMBOLS if R[s].notna().mean() > 0.99]
+    X = R[syms + [MARKET, "NIFTY"]].dropna()
+    freqs = {"daily": (X, 5), "weekly": (resampled_returns(X, "W-FRI"), 2),
+             "monthly": (resampled_returns(X, "ME"), 1)}
+    beta = {}
+    for lab, (D, lags) in freqs.items():
+        for mkt in (MARKET, "NIFTY"):
+            ex_m = excess(D[mkt], RF).iloc[1:]
+            beta[(lab, mkt)] = pd.Series({s: ols(excess(D[s], RF).iloc[1:].to_numpy(),
+                                                 ex_m.to_numpy(), lags)["beta"] for s in syms})
+    avg = {k: float(v.mean()) for k, v in beta.items()}
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs = np.arange(3)
+    for j, (mkt, c, lab) in enumerate(((MARKET, plots.SERIES[0], "against the NIFTY ETF"),
+                                       ("NIFTY", plots.SERIES[1], "against the NIFTY index"))):
+        vals = [avg[(f, mkt)] for f in freqs]
+        ax.bar(xs - 0.2 + 0.4 * j, vals, 0.38, color=c, label=lab)
+        for i, v in enumerate(vals):
+            ax.text(i - 0.2 + 0.4 * j, v + 0.005, f"{v:.3f}", ha="center", fontsize=8)
+    ax.set_xticks(xs, list(freqs))
+    ax.set_ylim(0.9, 1.1)
+    ax.set_ylabel(f"average beta of {len(syms)} stocks, 2014–26")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper right", fontsize=8)
+    gd = avg[("daily", MARKET)] / avg[("daily", "NIFTY")] - 1
+    gm = avg[("monthly", MARKET)] / avg[("monthly", "NIFTY")] - 1
+    ax.set_title(f"Against the ETF, daily betas averaged {gd:.0%} higher than against the index; "
+                 f"monthly, {gm:.0%}")
+    plots.save(fig, out_dir, "meas_market")
+    etf_d, idx_d = X[MARKET], X["NIFTY"]
+    etf_vs_idx = {"daily vol ratio (ETF / index)": float(etf_d.std() / idx_d.std()),
+                  "daily correlation": float(etf_d.corr(idx_d))}
+    for lab, (D, _) in list(freqs.items())[1:]:
+        etf_vs_idx[f"{lab} vol ratio"] = float(D[MARKET].std() / D["NIFTY"].std())
+        etf_vs_idx[f"{lab} correlation"] = float(D[MARKET].corr(D["NIFTY"]))
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    d = beta[("daily", MARKET)]
+    for lab, c in (("weekly", plots.SERIES[2]), ("monthly", plots.SERIES[3])):
+        ax.plot(d, beta[(lab, MARKET)], "o", ms=6, color=c, label=f"{lab} beta")
+    ax.plot([0.3, 2], [0.3, 2], color=plots.TEXT_2, lw=0.8, ls="--", label="same as daily")
+    ax.set_xlabel("daily beta to the NIFTY ETF")
+    ax.set_ylabel("weekly or monthly beta")
+    ax.legend(loc="upper left", fontsize=8)
+    cw = float(np.corrcoef(d, beta[("weekly", MARKET)])[0, 1])
+    cm = float(np.corrcoef(d, beta[("monthly", MARKET)])[0, 1])
+    ax.set_title(f"Daily, weekly and monthly betas agreed: correlation {cw:.2f} and {cm:.2f} "
+                 "across stocks")
+    plots.save(fig, out_dir, "meas_freq")
+
+    ex_m = excess(X[MARKET], RF).iloc[1:].to_numpy()
+    dim, hub, plain = {}, {}, {}
+    big = np.argsort(-np.abs(ex_m))[:10]
+    keep = np.setdiff1d(np.arange(len(ex_m)), big)
+    noext = {}
+    for s in syms:
+        y = excess(X[s], RF).iloc[1:].to_numpy()
+        plain[s] = ols(y, ex_m, 5)["beta"]
+        dim[s] = dimson_beta(y, ex_m)
+        hub[s] = huber_beta(y, ex_m)
+        noext[s] = ols(y[keep], ex_m[keep], 5)["beta"]
+    parts = np.array([dim[s]["parts"] for s in syms]).mean(axis=0)
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    labels = {"plain OLS": plain, "Dimson (yesterday, today, tomorrow)": {s: v["beta"] for s, v in
+                                                                         dim.items()},
+              "Huber (robust)": hub, "without the 10 biggest market days": noext}
+    vals = [float(np.mean(list(v.values()))) for v in labels.values()]
+    ax.bar(range(len(vals)), vals, 0.55, color=[plots.TEXT, plots.SERIES[2], plots.SERIES[0],
+                                                plots.MUTED])
+    for i, v in enumerate(vals):
+        ax.text(i, v + 0.004, f"{v:.3f}", ha="center", fontsize=8)
+    ax.set_xticks(range(len(vals)), [k.replace(" (", "\n(") for k in labels], fontsize=8)
+    ax.set_ylim(0.9, 1.1)
+    ax.set_ylabel("average daily beta to the NIFTY ETF")
+    ax.grid(axis="x", visible=False)
+    ax.set_title(f"Lags and robust weights moved the average beta by at most "
+                 f"{max(abs(v - vals[0]) for v in vals[1:]):.2f}")
+    plots.save(fig, out_dir, "meas_robust")
+
+    diffs = {k: pd.Series(v) - pd.Series(plain) for k, v in labels.items() if k != "plain OLS"}
+    return {
+        "stocks, days": (len(syms), len(X), f"{X.index[0]:%d %b %Y} to {X.index[-1]:%d %b %Y}"),
+        "average beta (freq, market)": {f"{a} vs {b}": round(v, 3) for (a, b), v in avg.items()},
+        "ETF / index gap: daily, weekly, monthly": tuple(
+            round(avg[(f, MARKET)] / avg[(f, "NIFTY")] - 1, 3) for f in freqs),
+        "ETF vs index": {k: round(v, 3) for k, v in etf_vs_idx.items()},
+        "weekly - daily (ETF): mean, sd, min, max": tuple(round(x, 3) for x in (
+            (beta[("weekly", MARKET)] - d).mean(), (beta[("weekly", MARKET)] - d).std(),
+            (beta[("weekly", MARKET)] - d).min(), (beta[("weekly", MARKET)] - d).max())),
+        "monthly - daily (ETF): mean, sd": (round((beta[("monthly", MARKET)] - d).mean(), 3),
+                                            round((beta[("monthly", MARKET)] - d).std(), 3)),
+        "correlation daily-weekly, daily-monthly": (round(cw, 3), round(cm, 3)),
+        "Dimson average parts (yesterday, today, tomorrow)": parts.round(3).tolist(),
+        "averages: plain, Dimson, Huber, no extremes": [round(v, 3) for v in vals],
+        "largest per-stock change vs plain": {k: (round(float(v.abs().max()), 3), v.abs().idxmax())
+                                              for k, v in diffs.items()},
+    }
+
+
+REPORTS = {"capm": report_capm, "measure": report_measure}

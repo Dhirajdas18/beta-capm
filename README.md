@@ -16,7 +16,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 ## Features
 
 - [x] CAPM regression for today's NIFTY 50: alpha, beta, R², Newey-West standard errors, multiple-testing check; live calculator tested against Python through Node
-- [ ] Measuring beta: daily, weekly and monthly; Dimson lags; robust regression
+- [x] Measuring beta: daily, weekly and monthly; ETF against index; Dimson lags; robust regression; market and Dimson options in the calculator
 - [ ] Beta through time and forecasting it: rolling, EWMA, Vasicek, Kalman
 - [ ] Up and down beta; betas in crashes
 - [ ] Does beta pay? Security market line, Fama-MacBeth, betting against beta
@@ -55,12 +55,39 @@ cluster in time and change in size.
 - **Survivors:** 80% of the alphas were positive (average +8.0% a year). These are today's NIFTY members;
   stocks that dropped out of the index in the period are missing from the list.
 
+### 2. Which market you regress on mattered more than how: daily betas against the NIFTY ETF averaged 7% higher than against the index, while frequency, lags and robust weights moved them by 0.04 or less
+
+<a href="docs/img/meas_market.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_market.png"><img src="docs/img/meas_market.gif" alt="Average beta of 43 stocks against the NIFTY ETF and the NIFTY index for daily, weekly and monthly returns" width="720"></picture></a>
+
+The 43 stocks with prices every day from January 2014 to November 2026 (3,181 days), regressed on two
+versions of the market: the NIFTY ETF (dividends included, the price you can trade) and the NIFTY index
+(price only), with daily, weekly and monthly returns above cash.
+
+- **The ETF gives higher daily betas:** 1.052 on average against 0.979 for the index (+7.4%); weekly
+  +4.3%, monthly +1.6%. The ETF's daily returns were 9% less volatile than the index's and correlated 0.97
+  with them; weekly 4% less volatile (0.99), monthly 2% (1.00). Beta divides a stock's covariance with the
+  market by the market's variance, so a quieter market series gives larger betas.
+
+<table><tr>
+<td><a href="docs/img/meas_freq.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_freq.png"><img src="docs/img/meas_freq.gif" alt="Weekly and monthly beta of each stock against its daily beta"></picture></a></td>
+<td><a href="docs/img/meas_robust.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_robust.png"><img src="docs/img/meas_robust.gif" alt="Average daily beta by plain OLS, Dimson lags, Huber robust regression and without the ten biggest market days"></picture></a></td>
+</tr></table>
+
+- **Frequency (left):** against the ETF, weekly betas differed from daily by −0.011 on average (per-stock
+  spread 0.061, from −0.115 to +0.121) and monthly by −0.009 (spread 0.117). Across stocks the daily betas
+  correlated 0.98 with the weekly ones and 0.95 with the monthly ones.
+- **Late prices (right):** the Dimson regression adds the slopes on the market's previous and next day.
+  On average they were −0.038 and +0.018, so the summed beta (1.033) was a little below the plain one
+  (1.052); the largest single change was Shriram Finance's, 0.20.
+- **Extreme days (right):** Huber robust regression, which down-weights days with large surprises, gave
+  1.009 on average (largest change: Adani Enterprises, 0.12); dropping the 10 biggest market days, 1.045.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # charts -> out/
+uv run bc report capm                       # also: measure; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -69,8 +96,9 @@ uv run pytest
 
 - `src/bc/capm.py`: excess returns over calendar days, OLS with plain and Newey-West standard errors,
   Benjamini-Hochberg, and a per-stock CAPM table annualised by calendar time.
-- `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns and rolling
-  beta in the browser; a test runs them through Node against Python. Five years of returns are embedded as
+- `src/bc/measure.py`: weekly and monthly returns, Dimson beta and Huber robust beta.
+- `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
+  rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).
 - `src/bc/data.py`: Yahoo prices for today's NIFTY 50, the index and two ETFs since 2007, with known errors
   repaired from `docs/data/yahoo_fixes.csv` (scanned for one-day spike-and-reverse prints); the S&P 500

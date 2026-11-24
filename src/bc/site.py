@@ -30,9 +30,9 @@ def calculator_data(r: pd.DataFrame) -> dict:
     from bc.reports import MARKET, RF
 
     symbols = sorted(SYMBOLS)
-    recent = r[symbols + [MARKET]].iloc[-DAYS:]
+    recent = r[symbols + [MARKET, "NIFTY"]].iloc[-DAYS:]
     data = {s: [None if pd.isna(x) else int(round(x / SCALE)) for x in recent[s]]
-            for s in symbols + [MARKET]}
+            for s in symbols + [MARKET, "NIFTY"]}
     return {"symbols": symbols, "sectors": {s: SECTORS[s] for s in symbols}, "market": MARKET,
             "rf": RF, "dates": list(recent.index.strftime("%Y-%m-%d")),
             "last": f"{recent.index[-1]:%d %b %Y}", "r": data}

@@ -47,3 +47,15 @@ def test_browser_weekly_returns_match_pandas():
                f"{json.dumps(list(idx.strftime('%Y-%m-%d')))})")
     assert np.array(js["cols"]["a"]) == pytest.approx(py.to_numpy(), rel=1e-9)
     assert js["dates"] == list(py.index.strftime("%Y-%m-%d"))
+
+
+def test_browser_dimson_matches_python():
+    from bc.measure import dimson_beta
+
+    rng = np.random.default_rng(3)
+    x = rng.normal(0, 0.01, 800)
+    y = 0.7 * x + 0.3 * np.r_[0.0, x[:-1]] + rng.normal(0, 0.006, 800)
+    js = _node(f"m.dimson({json.dumps(y.tolist())}, {json.dumps(x.tolist())})")
+    py = dimson_beta(y, x)
+    assert js["beta"] == pytest.approx(py["beta"], rel=1e-9)
+    assert js["parts"] == pytest.approx(py["parts"], rel=1e-8)
