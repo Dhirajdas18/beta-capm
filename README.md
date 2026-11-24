@@ -21,7 +21,7 @@ time, and how much NIFTY to sell to hedge a holding. Rebuilt weekly from fresh p
 - [x] Up and down betas, crash betas and whether asymmetry repeats; up/down row in the calculator
 - [x] Does beta pay: Fama-MacBeth, beta-sorted portfolios, betting against beta and a long-only low-beta portfolio after costs; two dashboard sections
 - [x] Hedging with NIFTY futures out of sample after today's futures charges and whole lots; lots and roll cost in the calculator
-- [ ] Beyond one factor: momentum, low volatility and sectors from prices
+- [x] Price-based factors: momentum, volatility and beta together, raw and within sector; a price-factors dashboard section
 
 ## Findings
 
@@ -187,12 +187,39 @@ bid-ask spread.
   1.44 to 1.70; a ₹50 lakh one was never more than 14% off the target. Real lot sizes in past years differed.
 - **Costs:** STT alone, 0.05% of the futures sold each month, is 0.6% of the hedged amount a year.
 
+### 7. High-volatility stocks beat low-volatility ones by 12.4% a year among today's NIFTY 50, the opposite of the usual finding, and survivorship can't be ruled out as the reason; momentum was positive but not significant
+
+<a href="docs/img/fac_ls.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fac_ls.png"><img src="docs/img/fac_ls.gif" alt="Rupee growth of momentum, low-minus-high volatility and low-minus-high beta long-short portfolios" width="720"></picture></a>
+
+Each month from February 2012 to October 2026 (177 months, 43 to 50 stocks), three measures known at
+the month start: momentum (the return over the past 12 months, skipping the latest), volatility (the past
+year's daily swings) and the Blume beta. Portfolios are the top third minus the bottom third, equal
+weight, next month's return, before costs.
+
+- **Volatility:** low minus high volatility returned −12.4% a year (Newey-West t −2.95, Sharpe −0.80);
+  −6.2% within sectors (t −2.11). It held in both halves (−7.3% a year in 2012–19, −17.5% after) and
+  with daily returns clipped at ±15% (−12.3%, t −2.87), so bad prints don't drive it.
+- **Survivorship:** these are today's members. A volatile stock that crashed would have dropped out of
+  the index and is missing from this data, while volatile stocks that soared are here. This data can't
+  separate that bias from a real premium, so the result isn't evidence that volatility pays.
+- **Momentum:** winners minus losers returned 6.4% a year (t 1.51), 2.0% within sectors (t 0.65).
+- **Low minus high beta:** −0.2% a year (t −0.05); its returns correlated 0.82 with low minus high
+  volatility.
+
+<a href="docs/img/fac_fm.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/fac_fm.png"><img src="docs/img/fac_fm.gif" alt="Fama-MacBeth slopes for beta, momentum and volatility, raw and within sector" width="720"></picture></a>
+
+- **All three together (Fama-MacBeth, scores standardised each month):** per one standard deviation,
+  beta −2.9% a year (t −1.9), momentum +2.0% (t 1.15), volatility +6.7% (t 3.36). Within sectors: beta
+  −3.1% (t −2.9), momentum +0.8% (t 0.66), volatility +4.3% (t 2.66). Three of the six slopes pass
+  Benjamini-Hochberg: volatility both ways and beta within sectors. Holding volatility fixed, higher beta
+  went with lower returns.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run bc report capm                       # also: measure, forecast, asym, pricing, hedge; charts -> out/
+uv run bc report capm                       # also: measure, forecast, asym, pricing, hedge, factors; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -206,6 +233,8 @@ uv run pytest
 - `src/bc/asym.py`: up and down betas with a Newey-West test of the difference, and crash beta.
 - `src/bc/pricing.py`: Fama-MacBeth, beta-sorted portfolios and betting against beta.
 - `src/bc/hedge.py`: futures charges, whole-lot sizing and a monthly-rolled hedge.
+- `src/bc/factors.py`: 12-1 momentum, cross-sectional scores, sector-neutral demeaning, multi-factor
+  Fama-MacBeth and top-minus-bottom portfolios.
 - `src/bc/beta.js`, `calculator.html`: the same regression, excess returns, weekly returns, Dimson beta and
   rolling beta in the browser, against the NIFTY ETF or index; a test runs them through Node against Python. Five years of returns are embedded as
   integers (0.001% units).

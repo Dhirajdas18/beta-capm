@@ -40,3 +40,7 @@ def test_page_builds():
 def test_page_has_the_beta_pays_section_from_the_same_returns():
     html = build_html(_returns())
     assert "fig-does-beta-pay" in html and "fig-betting-against-beta" in html
+
+
+def test_page_has_the_price_factors_section():
+    assert "fig-price-factors" in build_html(_returns())

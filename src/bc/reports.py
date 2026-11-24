@@ -1015,6 +1015,172 @@ def report_hedge(out_dir: Path) -> dict:
     }
 
 
+def _factor_panel(R_all: pd.DataFrame | None = None):
+    """Monthly panel plus characteristics known at each month end: Blume beta, 12-1 momentum and
+    past-year daily volatility; months with momentum for at least 30 stocks."""
+    from bc.data import SYMBOLS
+    from bc.factors import momentum
+    from bc.measure import resampled_returns
+
+    R_all = returns() if R_all is None else R_all
+    B, Rn, mkt = _monthly_panel(R_all)
+    R = R_all.loc["2011-01-01":, SYMBOLS]
+    M = resampled_returns(R, "ME")
+    M.index = M.index.to_period("M")
+    mom = momentum(M).reindex(B.index)
+    month = R.index.to_period("M")
+    ends = np.flatnonzero(np.append(month[1:] != month[:-1], True))
+    vol = {}
+    for t in ends[ends >= 249]:
+        w = R.iloc[t - 249 : t + 1]
+        vol[R.index[t].to_period("M")] = w.std().where(w.notna().sum() >= 200) * np.sqrt(252)
+    vol = pd.DataFrame(vol).T.reindex(B.index)
+    ok = mom.notna().sum(axis=1) >= 30
+    chars = {"beta": B[ok], "momentum": mom[ok], "volatility": vol[ok]}
+    return B[ok], Rn[ok], mkt[ok], chars, R, ends
+
+
+def report_factors(out_dir: Path) -> dict:
+    """Momentum (12-1), volatility and beta at each month end, past data only: Fama-MacBeth with
+    all three together, raw and sector-neutral, and top-minus-bottom-third portfolios."""
+    from scipy.stats import norm
+
+    from bc.capm import bh_reject, ols
+    from bc.data import SECTORS, SYMBOLS
+    from bc.factors import fama_macbeth_multi, long_short, sector_demean, zscore
+    from bc.pricing import _nw_t_mean
+
+    B, Rn, mkt, chars, R, ends = _factor_panel()
+    mom = chars["momentum"]
+    sect = {s: SECTORS[s] for s in SYMBOLS}
+    fm = {
+        "raw": fama_macbeth_multi({k: zscore(v) for k, v in chars.items()}, Rn),
+        "within sector": fama_macbeth_multi(
+            {k: zscore(sector_demean(zscore(v), sect)) for k, v in chars.items()},
+            sector_demean(Rn, sect),
+        ),
+    }
+    tvals = np.array([fm[v][k]["t"] for v in fm for k in chars])
+    p = 2 * norm.sf(np.abs(tvals))
+    bh = dict(zip([f"{k} ({v})" for v in fm for k in chars], bh_reject(p), strict=True))
+
+    # long-short: high momentum minus low; low volatility minus high; low beta minus high
+    sign = {"momentum": 1, "volatility": -1, "beta": -1}
+    ls = {}
+    for k, X in chars.items():
+        for v, Xv in (("raw", X), ("within sector", sector_demean(zscore(X), sect))):
+            ls[(k, v)] = pd.Series(
+                [sign[k] * long_short(Xv.loc[t], Rn.loc[t]) for t in B.index], B.index
+            )
+    sh = lambda v: float(v.mean() / v.std() * np.sqrt(12))  # noqa: E731
+    m = mkt.to_numpy()
+    ls_stats = {}
+    for key, v in ls.items():
+        o = ols(v.to_numpy(), m, 3)
+        ls_stats[f"{key[0]} ({key[1]})"] = (
+            round(v.mean() * 1200, 2),
+            round(_nw_t_mean(v.to_numpy(), 3), 2),
+            round(sh(v), 2),
+            round(o["beta"], 2),
+        )
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    names = list(chars)
+    for j, (v, c) in enumerate((("raw", plots.SERIES[0]), ("within sector", plots.SERIES[2]))):
+        vals = [fm[v][k]["slope"] * 1200 for k in names]
+        xs = np.arange(len(names)) - 0.2 + 0.4 * j
+        ax.bar(xs, vals, 0.38, color=c, label=v)
+        for x, k, val in zip(xs, names, vals, strict=True):
+            t = fm[v][k]["t"]
+            ax.text(
+                x,
+                val + (0.3 if val >= 0 else -0.3),
+                f"t {t:.1f}".replace("-", "−"),
+                ha="center",
+                va="bottom" if val >= 0 else "top",
+                fontsize=8,
+            )
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_xticks(range(len(names)), names)
+    ax.set_ylabel("return per 1 standard deviation, % a year")
+    ax.grid(axis="x", visible=False)
+    ax.legend(loc="upper left", fontsize=8)
+    top = max(fm[v][k]["slope"] * 1200 for v in fm for k in names)
+    ax.set_ylim(top=top + 1.5)
+    n_bh = sum(bh.values())
+    ax.set_title(
+        f"Together, beta, momentum and volatility: {n_bh} of 6 slopes survive Benjamini-Hochberg"
+    )
+    plots.save(fig, out_dir, "fac_fm")
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    idx = B.index.to_timestamp(how="end") + pd.offsets.MonthEnd(1)
+    for (k, v), c, lsty in (
+        (("momentum", "raw"), plots.SERIES[1], "-"),
+        (("momentum", "within sector"), plots.SERIES[1], "--"),
+        (("volatility", "raw"), plots.SERIES[0], "-"),
+        (("beta", "raw"), plots.TEXT, "-"),
+    ):
+        lab = {
+            "momentum": "momentum: winners − losers",
+            "volatility": "low − high volatility",
+            "beta": "low − high beta",
+        }[k] + ("" if v == "raw" else ", within sector")
+        ax.plot(idx, (1 + ls[(k, v)]).cumprod().to_numpy(), color=c, ls=lsty, lw=1.8, label=lab)
+    ax.axhline(1, color=plots.TEXT_2, lw=0.8)
+    ax.set_yscale("log")
+    from matplotlib.ticker import FuncFormatter, LogLocator
+
+    ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 1.5, 2, 3, 5, 7)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+    ax.set_ylabel("₹1 in each long-short, before costs (log scale)")
+    ax.legend(loc="upper left", fontsize=8)
+    vr = ls_stats["volatility (raw)"]
+    ax.set_title(
+        f"Low-volatility stocks trailed high-volatility ones by {-vr[0]:.1f}% a year "
+        + f"(t {vr[1]:.1f})".replace("-", "−")
+    )
+    plots.save(fig, out_dir, "fac_ls")
+
+    corr = pd.DataFrame({f"{k} ({v})": s for (k, v), s in ls.items() if v == "raw"}).corr()
+    # robustness: volatility from daily returns clipped at ±15% (bad prints can't drive it), halves
+    Rc = R.clip(-0.15, 0.15)
+    volc = {}
+    for t in ends[ends >= 249]:
+        w = Rc.iloc[t - 249 : t + 1]
+        volc[R.index[t].to_period("M")] = w.std().where(w.notna().sum() >= 200)
+    volc = pd.DataFrame(volc).T.reindex(B.index)
+    lvc = pd.Series([-long_short(volc.loc[t], Rn.loc[t]) for t in B.index], B.index)
+    lv = ls[("volatility", "raw")]
+    half = B.index < B.index[len(B) // 2]
+    return {
+        "months, stocks per month (min, max)": (
+            len(B),
+            int(mom.notna().sum(axis=1).min()),
+            int(mom.notna().sum(axis=1).max()),
+            f"{B.index[0] + 1} to {B.index[-1] + 1}",
+        ),
+        "FM slopes % a year per 1 SD (t)": {
+            f"{k} ({v})": (round(fm[v][k]["slope"] * 1200, 2), round(fm[v][k]["t"], 2))
+            for v in fm
+            for k in chars
+        },
+        "BH survivors": [k for k, r in bh.items() if r],
+        "long-short (mean %/yr, NW t, Sharpe, market beta)": ls_stats,
+        "long-short correlations (raw)": corr.round(2).to_dict(),
+        "low − high vol, clipped ±15%: %/yr, NW t": (
+            round(lvc.mean() * 1200, 2),
+            round(_nw_t_mean(lvc.to_numpy(), 3), 2),
+        ),
+        "low − high vol by half %/yr": (
+            f"{B.index[0] + 1}–{B.index[len(B) // 2 - 1] + 1}",
+            round(lv[half].mean() * 1200, 2),
+            round(lv[~half].mean() * 1200, 2),
+        ),
+    }
+
+
 REPORTS = {
     "capm": report_capm,
     "measure": report_measure,
@@ -1022,4 +1188,5 @@ REPORTS = {
     "asym": report_asym,
     "pricing": report_pricing,
     "hedge": report_hedge,
+    "factors": report_factors,
 }
