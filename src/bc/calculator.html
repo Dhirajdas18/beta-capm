@@ -1,0 +1,81 @@
+<form class="calc" id="bc" onsubmit="return false">
+  <label>Stock <select id="bc-sym"></select></label>
+  <label>Window <select id="bc-win">
+    <option value="250">last year</option><option value="750">last 3 years</option><option value="1250" selected>last 5 years</option>
+  </select></label>
+  <label>Returns <select id="bc-freq">
+    <option value="daily" selected>daily</option><option value="weekly">weekly</option>
+  </select></label>
+  <label>Holding, ₹ <input id="bc-amt" type="number" min="1000" step="1000" value="100000" inputmode="numeric" autocomplete="off"></label>
+</form>
+<p class="note" id="bc-note" aria-live="polite"></p>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th scope="col">Measure</th><th scope="col">Estimate</th><th scope="col">95% range, Newey-West</th><th scope="col">95% range, plain OLS</th></tr></thead>
+  <tbody id="bc-out"></tbody>
+</table></div>
+<h3 id="bc-scatter-title">The regression</h3>
+<div id="bc-scatter" class="sim-chart" role="img" aria-label="Stock's excess return against the NIFTY ETF's, with the fitted line"></div>
+<h3>Beta over the past year, through time</h3>
+<div id="bc-roll" class="sim-chart" role="img" aria-label="The stock's beta over each trailing year"></div>
+<script>
+$js
+const BC = $data;
+(() => {
+  const SCALE = 1e-5, el = (id) => document.getElementById(id);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const cols = Object.fromEntries(Object.entries(BC.r).map(([k, v]) => [k, v.map((x) => x === null ? null : x * SCALE)]));
+  el("bc-sym").innerHTML = BC.symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
+  el("bc-sym").value = "RELIANCE";
+  const f2 = (x) => x.toFixed(2).replace("-", "−"), pct = (x) => (x * 100).toFixed(1).replace("-", "−") + "%";
+  const rupees = (x) => "₹" + Math.round(x).toLocaleString("en-IN");
+  const base = () => ({ paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
+    font: { family: getComputedStyle(document.body).fontFamily, color: css("--text-2"), size: 12 } });
+  const series = (weekly, w) => {
+    const pick = { s: cols[el("bc-sym").value].slice(-w), m: cols[BC.market].slice(-w) };
+    let dates = BC.dates.slice(-w), data = pick;
+    if (weekly) { const wk = toWeekly(pick, dates); data = wk.cols; dates = wk.dates; }
+    return { y: excess(data.s, dates, BC.rf), x: excess(data.m, dates, BC.rf), dates };
+  };
+  const update = () => {
+    const sym = el("bc-sym").value, w = parseInt(el("bc-win").value, 10), weekly = el("bc-freq").value === "weekly";
+    const amt = parseFloat(el("bc-amt").value);
+    const { y, x, dates } = series(weekly, w);
+    const ok = y.map((v, i) => v !== null && x[i] !== null && i > 0);
+    const yy = y.filter((_, i) => ok[i]), xx = x.filter((_, i) => ok[i]);
+    if (yy.length < 30) { el("bc-out").innerHTML = ""; el("bc-note").textContent = `Not enough shared history for ${sym} in this window.`; Plotly.purge("bc-scatter"); return; }
+    const r = ols(yy, xx, weekly ? 2 : 5);
+    // calendar time from the price before the first return used to the last (as capm.py)
+    const i0 = ok.indexOf(true), i1 = ok.lastIndexOf(true);
+    const perYear = yy.length / ((Date.parse(dates[i1]) - Date.parse(dates[i0 - 1])) / (365.25 * 86400000));
+    const rows = [
+      ["Beta", f2(r.beta), `${f2(r.beta - 1.96 * r.se_beta_nw)} to ${f2(r.beta + 1.96 * r.se_beta_nw)}`, `${f2(r.beta - 1.96 * r.se_beta)} to ${f2(r.beta + 1.96 * r.se_beta)}`],
+      ["Alpha a year", pct(r.alpha * perYear), `${pct((r.alpha - 1.96 * r.se_alpha_nw) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha_nw) * perYear)}`, `${pct((r.alpha - 1.96 * r.se_alpha) * perYear)} to ${pct((r.alpha + 1.96 * r.se_alpha) * perYear)}`],
+      ["R² (share explained by NIFTY)", pct(r.r2), "", ""],
+      ["Volatility NIFTY doesn't explain, a year", pct(r.resid_sd * Math.sqrt(perYear)), "", ""],
+    ];
+    el("bc-out").innerHTML = rows.map(([a, b, c, d]) => `<tr><th scope="row">${a}</th><td>${b}</td><td>${c}</td><td>${d}</td></tr>`).join("");
+    const t = r.alpha / r.se_alpha_nw;
+    el("bc-note").textContent = `${sym}: ${yy.length} ${weekly ? "weeks" : "trading days"} to ${BC.last}. Each 1% NIFTY moved, ${sym} moved ${f2(r.beta)}% on average. ` +
+      `Alpha t-statistic ${f2(t)}${Math.abs(t) < 1.96 ? " (not distinguishable from zero)" : ""}. ` +
+      (amt > 0 ? `To hedge ${rupees(amt)} of ${sym} against the market, sell about ${rupees(r.beta * amt)} of NIFTY (beta × holding); the ${pct(1 - r.r2)} of its moves NIFTY doesn't explain stays unhedged.` : "");
+    el("bc-scatter-title").textContent = `${sym} against the NIFTY ETF, ${weekly ? "weekly" : "daily"} returns above cash`;
+    const lo = Math.min(...xx), hi = Math.max(...xx);
+    Plotly.react("bc-scatter", [
+      { x: xx.map((v) => v * 100), y: yy.map((v) => v * 100), mode: "markers", marker: { color: css("--muted"), size: 4, opacity: 0.6 }, name: weekly ? "weeks" : "days", hoverinfo: "skip" },
+      { x: [lo * 100, hi * 100], y: [(r.alpha + r.beta * lo) * 100, (r.alpha + r.beta * hi) * 100], mode: "lines", line: { color: css("--accent"), width: 2.5 }, name: `fitted line, beta ${f2(r.beta)}` },
+      { x: [lo * 100, hi * 100], y: [lo * 100, hi * 100], mode: "lines", line: { color: css("--text-2"), width: 1, dash: "dash" }, name: "beta 1" },
+    ], Object.assign(base(), { margin: { l: 56, r: 16, t: 32, b: 48 }, legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0 },
+      xaxis: { title: "NIFTY ETF, %", gridcolor: css("--grid"), zeroline: false }, yaxis: { title: `${sym}, %`, gridcolor: css("--grid"), zeroline: false } }),
+    { displaylogo: false, responsive: true });
+    const all = series(weekly, 1250), win = weekly ? 52 : 250, rb = rollingBeta(all.y.map((v, i) => i ? v : null), all.x.map((v, i) => i ? v : null), win);
+    Plotly.react("bc-roll", [{ x: all.dates, y: rb, mode: "lines", line: { color: css("--accent"), width: 2 }, name: "beta", hovertemplate: "%{x}: %{y:.2f}<extra></extra>" }],
+      Object.assign(base(), { margin: { l: 56, r: 16, t: 16, b: 40 }, showlegend: false,
+        xaxis: { gridcolor: css("--grid") }, yaxis: { title: `beta, past ${weekly ? "52 weeks" : "250 days"}`, gridcolor: css("--grid") } }),
+      { displaylogo: false, responsive: true });
+  };
+  el("bc").addEventListener("change", update);
+  el("bc").addEventListener("input", (e) => { if (e.target.id === "bc-amt") update(); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", update);
+  update();
+})();
+</script>
